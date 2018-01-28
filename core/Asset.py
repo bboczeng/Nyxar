@@ -63,13 +63,12 @@ class AssetBase(object):
 
 
 """
-Asset class for 
+Asset class using CSV readers
 """
 
 class AssetCSV(AssetBase):
     def __init__(self, name, file_path):
         super(AssetCSV, self).__init__(name)
-        self.file_path = file_path
         # read data
         self.data = self.read_from_csv(file_path)
 
@@ -92,6 +91,8 @@ class AssetCSV(AssetBase):
                     AssetFields.Low: float(each[3]),
                     AssetFields.Close: float(each[4])}
                 self.data[time_stamp] = price_data
+                count += 1
+        print("read " + str(count) + " line of asset data for " + self.name)
 
     def __get_value(self, index, field):
         assert isinstance(field, AssetFields), "invalid field id: " + field
