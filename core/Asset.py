@@ -86,7 +86,7 @@ class AssetCSV(AssetBase):
             # data format: time_stamp and OHLCV, open, high, low, close, volume
             for each in reader:
                 assert len(set(each) - set("timestamp", "open", "high", "low", "close", "volume")) == 0, \
-                    "format error for CSV dataset, it has to be 6 cols:  timestamp + OHLCV"
+                    "format error for CSV dataset header, it has to be 6 cols:  timestamp + OHLCV"
                 break
             # finish header check
         pd_data = pd.read_csv(file_path)
