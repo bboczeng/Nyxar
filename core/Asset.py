@@ -9,25 +9,29 @@ This file implements the basic I/O operations for an asset
 import os
 import csv
 
+import pandas as pd
+
 from enum import Enum
 
+
 class AssetFields(Enum):
-    High = 0
-    Low = 1
-    Open = 2
-    Close = 3
-    Volume = 4
+    High = "high"
+    Low = "low"
+    Open = "open"
+    Close = "close"
+    Volume = "volume"
 
 
 """
 The base class for asset
 """
 
+
 class AssetBase(object):
 
     def __init__(self, name):
         self.name = name
-        self.data = {}
+        self.data = None
 
     def read_from_csv(self, file_path):
         pass
@@ -38,79 +42,66 @@ class AssetBase(object):
     def read_from_api(self, api_fun):
         pass
 
-    def __get_value(self, index, field):
+    def __get_value(self, timestamp, field):
         pass
 
     @property
-    def price_high(self, index):
-        return self.__get_value(index, AssetFields.High)
+    def price_high(self, timestamp):
+        return self.__get_value(timestamp, AssetFields.High)
 
     @property
-    def price_low(self, index):
-        return self.__get_value(index, AssetFields.Low)
+    def price_low(self, timestamp):
+        return self.__get_value(timestamp, AssetFields.Low)
 
     @property
-    def price_open(self, index):
-        return self.__get_value(index, AssetFields.Open)
+    def price_open(self, timestamp):
+        return self.__get_value(timestamp, AssetFields.Open)
 
     @property
-    def price_close(self, index):
-        return self.__get_value(index, AssetFields.Close)
+    def price_close(self, timestamp):
+        return self.__get_value(timestamp, AssetFields.Close)
 
     @property
-    def price_volume(self, index):
-        return self.__get_value(index, AssetFields.Volume)
+    def price_volume(self, timestamp):
+        return self.__get_value(timestamp, AssetFields.Volume)
 
 
 """
 Asset class using CSV readers
 """
 
+
 class AssetCSV(AssetBase):
     def __init__(self, name, file_path):
         super(AssetCSV, self).__init__(name)
         # read data
-        self.data = self.read_from_csv(file_path)
+        self.read_from_csv(file_path)
 
     def read_from_csv(self, file_path):
         assert os.path.exists(file_path), "csv path : " + file_path + " does not exist."
         # implement the reading algorithm
+        # basic checks for cvs format
         with open(file_path) as input_file:
             reader = csv.reader(input_file, delimiter=',')
-            count = 0
-            # data format: time_stamp and OHLC, open, high, low, close,
+            # data format: time_stamp and OHLCV, open, high, low, close, volume
             for each in reader:
-                assert len(each) == 5, "format error for CSV dataset, it has to be timestamp + OHLC"
-                if count == 0:
-                    count += 1
-                    continue
-                time_stamp = each[0]
-                price_data = {
-                    AssetFields.Open: float(each[1]),
-                    AssetFields.High: float(each[2]),
-                    AssetFields.Low: float(each[3]),
-                    AssetFields.Close: float(each[4])}
-                self.data[time_stamp] = price_data
-                count += 1
-        print("read " + str(count) + " line of asset data for " + self.name)
+                assert len(set(each) - set("timestamp", "open", "high", "low", "close", "volume")) == 0, \
+                    "format error for CSV dataset, it has to be 6 cols:  timestamp + OHLCV"
+                break
+            # finish header check
+        pd_data = pd.read_csv(file_path)
+        # use timestamp as primary key
+        pd_data.set_index("timestamp")
+        self.data = pd_data
+        print("Reading " + str(pd_data.size) + " lines of price data for Asset " + self.name)
 
-    def read_from_csv2(self, file_path):
-        assert os.path.exists(file_path), "csv path : " + file_path + " does not exist."
-        # implement the reading algorithm
-        with open(file_path) as input_file:
-            reader = csv.reader(input_file, delimiter=',')
-            if csv.Sniffer().has_header(input_file.read(1024)):
-                # read columns with header name "open", "high", "low", "close"
-
-            else:
-                # data format: time_stamp and OHLC, open, high, low, close,
-        #data should be ordered, instead of using a dict. user is responsible for making the data ordered
-        #which should be the case in most of scenarios
-
-
-
-    def __get_value(self, index, field):
+    def __get_value(self, timestamp, field):
+        # field has to be the Asset
         assert isinstance(field, AssetFields), "invalid field id: " + field
-        if index not in self.data:
-            raise KeyError("timestamp index: " + index + "does not exist for asset " + self.name)
-        return self.data[index][field]
+        if self.data is None:
+            raise ValueError("Asset data is None and it has not been properly initialized.")
+        try:
+            return self.data.loc[timestamp, field]
+        except Exception:
+            raise KeyError(timestamp + " or " + field + " does not exist in Asset's data")
+
