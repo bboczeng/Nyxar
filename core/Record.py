@@ -6,12 +6,14 @@
 # history order structure
 # timestamp (when filled) | pair | a bool for buy/sell | number
 
+# do you think it is necessary to give every asset an unique number ID?
 
 # here is what happens when a new timestamp is being processed:
 # exchange check if there are open orders remaining
 #   - If there are, check if orders can be filled or not, then update the position
 # exchange sends the latest quote to the trading algo
-# exchange takes request (place order / cancel order / history order) from the trading algo, then process it
+# exchange takes request (place order / cancel order / history order / current position) from the trading algo, 
+# then process it
 
 # not sure about the time ordering here. but i think one should place order at current tick and process it at the
 # next tick? or order is always processed within the same price in the same tick
