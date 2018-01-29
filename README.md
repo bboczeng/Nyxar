@@ -41,10 +41,29 @@ In the live-trading mode, the orders are sent to the exchange API, which are fur
 
 ### Simulative exchange
 
-Simulative exchange simulates a real exchange. It takes order from the trading algo, then determines whether the order can be filled based on the historical data. If the order can be filled, it records the change of the position, and the total value (in fiat currency) of the portfolio. 
+Simulative exchange simulates a real exchange. It takes order from the trading algo, then determines whether the order can be filled based on the historical data. If the order can be filled, it records the change of the position. If the order cannot be filled or partially filled, the order will remain until fully-filled or cancelled. 
 
 The simulative change should be able to incorporate trading fees and slippage model for more accurate backtesting results. 
 
 ### Strategy benchmark
 
 Strategy benchmark provides basic tools for benchmarking and visualizing a strategy. 
+
+## Simulative exchange
+
+In order to simulate a real exchange, the most basic data it needs is the timestamped price for a universe of symbols (trading pairs). If given only timestamped price, all buy/sell orders placed at time `t` will be filled at the price at the timestamp next to `t`, and the market impact is completely neglected. In the following, we always assume the data is by minute, i.e., the nearest two timestamps differ by 1 minute. 
+
+
+### Slippage model
+1. Fixed basepoint slippage. All buy/sell orders are filled `0.01x%` higher/lower than the next timestamped price. `x` is the base point usually taken as `5` or `10`. This mimics the commission fee taken by the exchange. 
+  Example:
+
+2. Spread slippage. If the bid/ask price is also provided to the exchange, all buy/sell orders are filled higher/lower with `n%` spread than the next timestamped price. `n` is usually taken as `50`.
+  Example: 
+
+3. Volume slippage. If volume (usually 24h) is also provided to the exchange, the tradable volume is distributed uniformally through every minute. Each minute, `m%` of the tradable volume will be filled. The remaining order will be placed at next minute following the same tradable volume. `m` is usually taken as `2.5`.
+  Example: 
+
+4. Custom slippage. To be supported. 
+
+TO DO: A comparison of the slippage model with the real slippage.
