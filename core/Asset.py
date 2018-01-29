@@ -94,6 +94,21 @@ class AssetCSV(AssetBase):
                 count += 1
         print("read " + str(count) + " line of asset data for " + self.name)
 
+    def read_from_csv2(self, file_path):
+        assert os.path.exists(file_path), "csv path : " + file_path + " does not exist."
+        # implement the reading algorithm
+        with open(file_path) as input_file:
+            reader = csv.reader(input_file, delimiter=',')
+            if csv.Sniffer().has_header(input_file.read(1024)):
+                # read columns with header name "open", "high", "low", "close"
+
+            else:
+                # data format: time_stamp and OHLC, open, high, low, close,
+        #data should be ordered, instead of using a dict. user is responsible for making the data ordered
+        #which should be the case in most of scenarios
+
+
+
     def __get_value(self, index, field):
         assert isinstance(field, AssetFields), "invalid field id: " + field
         if index not in self.data:
