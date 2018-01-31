@@ -2,6 +2,8 @@
 
 Fermi is a platform for quantitative trading on 24/7 markets, with modules for data mining, strategy backtesting, paper-trading, and live-trading. Fermi is particularly suitable for trading on cryptocurrency markets. 
 
+Note: This project is in very early development stage. 
+
 ## Overview
 
 Fermi is composed of following parts:
@@ -20,7 +22,7 @@ Fermi is composed of following parts:
 
 The relation of these parts is as follows:
 
-![](figures/Struct.png){ width=80% }
+![](figures/Struct.png)
 
 
 ### Data fetching and preprocessing
