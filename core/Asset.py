@@ -45,23 +45,18 @@ class AssetBase(object):
     def __get_value(self, timestamp, field):
         pass
 
-    @property
     def price_high(self, timestamp):
         return self.__get_value(timestamp, AssetFields.High)
 
-    @property
     def price_low(self, timestamp):
         return self.__get_value(timestamp, AssetFields.Low)
 
-    @property
     def price_open(self, timestamp):
         return self.__get_value(timestamp, AssetFields.Open)
 
-    @property
     def price_close(self, timestamp):
         return self.__get_value(timestamp, AssetFields.Close)
 
-    @property
     def price_volume(self, timestamp):
         return self.__get_value(timestamp, AssetFields.Volume)
 
@@ -85,7 +80,7 @@ class AssetCSV(AssetBase):
             reader = csv.reader(input_file, delimiter=',')
             # data format: time_stamp and OHLCV, open, high, low, close, volume
             for each in reader:
-                assert len(set(each) - set("timestamp", "open", "high", "low", "close", "volume")) == 0, \
+                assert len(set(each) - set(["timestamp", "open", "high", "low", "close", "volume"])) == 0, \
                     "format error for CSV dataset header, it has to be 6 cols:  timestamp + OHLCV"
                 break
             # finish header check
