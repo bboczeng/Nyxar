@@ -11,7 +11,6 @@ import json
 import base64
 
 #TO DO:
-#Finish fetch_bidask
 #Extract particular symbol
 
 
@@ -24,24 +23,42 @@ class PathNotSpecified(Exception):
 
 
 class binance:
-    def __init__(self, path='', retry=10, ddos_cooldown=120):
+    def __init__(self, path='', retry=5, ddos_cooldown=120):
+        """
+        Initialize binance exchange data pipeline.
+
+        Args:
+            path: Path on the disk to save fetched data. Defaults to ''.
+            retry: Max number of retry if an exception is raised by exchange API. Default to 5.
+            ddos_cooldown: Number of seconds to cool down if triggers an exchange DDOS protection. Default to be 120.
+        """
         self.exchange_name = 'binance'
         self.exchange = getattr(ccxt, self.exchange_name)()
         self.path = path
         self.retry = retry
         self.cooldown = ddos_cooldown
 
-        self.last_OHLCV = {}
-        self.last_bid_ask = []
+        # data cache
+        self.last_ohlcv = {}
+        self.last_bid_ask = {}
         self.last_orderbook = {}
 
-        self.directory = {'OHLCV': 'OHLCV', 'bidask': 'bidask', 'orderbook': 'orderbook'}
-        for dir in self.directory:
-            directory = path + self.exchange_name + '/' + self.directory[dir] + '/'
-            if not os.path.exists(directory):
-                os.makedirs(directory)
+        # create directories if not created
+        if path != '':
+            # the directory name for fetched data from different methods
+            self.directory = {'OHLCV': 'OHLCV', 'bidask': 'bidask', 'orderbook': 'orderbook'}
+            for dir in self.directory:
+                directory = path + self.exchange_name + '/' + self.directory[dir] + '/'
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
 
     def load_markets(self):
+        """
+        Load market data.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
         for attempt in range(self.retry):
             try:
                 self.exchange.loadMarkets()
@@ -61,9 +78,10 @@ class binance:
 
     def fetch_ohlcv(self, save = True):
         """
-        Fetch last 500 minutes OHLCV data for all tradable pairs
-        Should call it around every 450 minutes
+        Fetch last 500 ticks of OHLCV data (1 min per tick) for all tradable pairs.
 
+        Args:
+            save: Save fetched data to disk. Defaults to False.
         """
 
         print("Fetching OHLCV from " + self.exchange_name + "...")
@@ -128,11 +146,12 @@ class binance:
             counter += 1
             time.sleep(self.exchange.rateLimit / 1000)
 
-    def fetch_bidask(self, save=True):
+    def fetch_bid_ask(self, save=True):
         """
-        Fetch current bidask for all tradable pairs
-        Should call it every 1 min
-        :return:
+        Fetch current bid, ask and last price for all tradable pairs.
+
+        Args:
+            save: Save fetched data to disk. Defaults to False.
         """
 
         print("Fetching bidask from " + self.exchange_name + "...")
@@ -154,25 +173,47 @@ class binance:
                 time.sleep(self.cooldown)
                 continue
             else:
-                return True
+                break
         else:
-            print('   Fail to load market')
-            return False
+            print('   Fail to load bid-ask')
+            return
 
-        # to finish...
+        for symbol in data:
+            if symbol == '123/456':
+                continue
+
+            self.last_bid_ask[symbol] = [data[symbol]['timestamp'], data[symbol]['bid'],
+                                         data[symbol]['ask'], data[symbol]['last']]
+
+            if save:
+                if self.path == '':
+                    raise PathNotSpecified("Path not specified for save data. ")
+
+                filename = directory + symbol.translate({ord(c): None for c in '!@#$/'}) + '.csv'
+
+                if os.path.exists(filename):
+                    with open(filename, 'a', newline='') as file:
+                        writer = csv.writer(file)
+                        writer.writerow(self.last_bid_ask[symbol])
+                else:
+                    with open(filename, 'a+', newline='') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerow(fieldnames)
+                        writer.writerow(self.last_bid_ask[symbol])
 
     def fetch_orderbook(self, save=True):
         """
-        Fetch current orderbook data for all tradable pairs
-        Should call it around 5-10 minutes
+        Fetch current orderbook for all tradable pairs.
 
+        Args:
+            save: Save fetched data to disk. Defaults to False.
         """
 
         print("Fetching orderbook from " + self.exchange_name + "...")
         if not self.load_markets():
             return
 
-        fieldnames = ['timestamp', 'datetime', 'asks', 'bids']
+        fieldnames = ['timestamp', 'asks', 'bids']
         directory = self.path + self.exchange_name + '/' + self.directory['orderbook'] + '/'
 
         counter = 1
@@ -181,7 +222,6 @@ class binance:
             for attempt in range(self.retry):
                 try:
                     data = self.exchange.fetchOrderBook(symbol, {'limit': 100})
-                    self.last_orderbook[symbol] = [data['timestamp'], data['asks'], data['bids']]
                 except (ExchangeNotAvailable, ExchangeError, RequestTimeout) as exception:
                     print('   ' + exception.__class__.__name__ + ', retry ' + str(attempt + 1) + '/' + str(self.retry))
                     time.sleep(self.exchange.rateLimit / 1000)
@@ -195,6 +235,8 @@ class binance:
             else:
                 print('   Fail to load orderbook ' + symbol)
                 continue
+
+            self.last_orderbook[symbol] = [data['timestamp'], data['asks'], data['bids']]
 
             if save:
                 if self.path == '':
@@ -218,3 +260,6 @@ class binance:
 
             counter += 1
             time.sleep(self.exchange.rateLimit / 1000)
+
+    def fetch_symbol(self, save=False):
+        pass
