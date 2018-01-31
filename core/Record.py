@@ -67,6 +67,9 @@ class Order(object):
     def timestamp(self):
         return self.timestamp
 
+    def name(self):
+        return self.name
+
 
 class OpenOrder(Order):
     def __init__(self, price, size, type, timestamp):
