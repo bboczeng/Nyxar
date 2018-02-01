@@ -1,7 +1,7 @@
 from requests.exceptions import ReadTimeout
 
-from data.errors import PathNotSpecified
-from data.errors import TimestampError
+from api.errors import PathNotSpecified
+from api.errors import TimestampError
 
 import os
 import csv
@@ -14,6 +14,7 @@ class coinmarketcap:
     def __init__(self, path='', retry=5):
         self.data_source_name = 'coinmarketcap'
         self.base_url = 'https://api.coinmarketcap.com/v1/'
+        self.path = path
         self.retry = retry
         self.timeout = 30
 
@@ -68,7 +69,7 @@ class coinmarketcap:
 
             if save:
                 if self.path == '':
-                    raise PathNotSpecified("Path not specified for save data. ")
+                    raise PathNotSpecified("Path not specified for saving data. ")
 
                 filename = self.path + data_dict['symbol'].translate({ord(c): '-' for c in '!@#$/'}) + '.csv'
 

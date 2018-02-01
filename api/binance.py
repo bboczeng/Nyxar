@@ -3,8 +3,8 @@ from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import RequestTimeout
 from ccxt.base.errors import DDoSProtection
 
-from data.errors import TimestampError
-from data.errors import PathNotSpecified
+from api.errors import TimestampError
+from api.errors import PathNotSpecified
 
 import os
 import csv
@@ -106,7 +106,7 @@ class binance:
 
             if save:
                 if self.path == '':
-                    raise PathNotSpecified('Path not specified for save data. ')
+                    raise PathNotSpecified('Path not specified for saving data. ')
 
                 filename = directory + symbol.translate({ord(c): '-' for c in '!@#$/'}) + '.csv'
                 if os.path.exists(filename):
@@ -180,7 +180,7 @@ class binance:
 
             if save:
                 if self.path == '':
-                    raise PathNotSpecified('Path not specified for save data. ')
+                    raise PathNotSpecified('Path not specified for saving data. ')
 
                 filename = directory + symbol.translate({ord(c): '-' for c in '!@#$/'}) + '.csv'
 
@@ -234,7 +234,7 @@ class binance:
 
             if save:
                 if self.path == '':
-                    raise PathNotSpecified('Path not specified for save data. ')
+                    raise PathNotSpecified('Path not specified for saving data. ')
 
                 to_write = [data['timestamp'], base64.b64encode(json.dumps(data['asks']).encode()).decode(),
                             base64.b64encode(json.dumps(data['bids']).encode()).decode()]
