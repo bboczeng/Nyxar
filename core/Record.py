@@ -170,25 +170,32 @@ class OrderBook(object):
     def __init__(self):
         self.book = {}
 
+    def add_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
+        self.book[new_order.get_id()] = new_order
 
+    def get_order(self, order_id):
+        if order_id in self.book:
+            return self.book[order_id]
+        else:
+            print("order id %s not found".format(order.id))
+            return None
+
+class Trade(object):
+    pass
 
 
 class Record(object):
     def __init__(self):
-        self.cash = 0
-        self.open_orders = OpenOrderBook()
-        self.history_orders = HistoryOrderBook()
-
-
-    def get_average_cost(self):
-        pass
+        self.balance = {} # balances in each currency
+        self.open_orders = OrderBook()
+        self.history_orders = OrderBook()
 
     def submit_limit_order(self):
         pass
 
     def submit_market_order(self):
         pass
-
 
     # always execute this line for each timestamp during backtest
     def resolve_open_orders(self):
