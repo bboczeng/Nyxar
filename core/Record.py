@@ -108,6 +108,7 @@ class Order(object):
         assert isinstance(quote_name, str), "quote_name must be string"
         assert isinstance(base_name, str), "base_name must be string"
         assert isinstance(timestamp, int), "timestamp must be integer"
+        assert isinstance(amount, int), "amount must be integer"
         assert amount >= 0, "size must be a positive number"
         assert price >= 0, "price must be a positive number"
 
