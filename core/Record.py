@@ -24,14 +24,16 @@
 # Regarding our implementation of order class:
 #
 #	1. Any particular reason why timestamp should be string? Just use an integer.
-#	2. I suggest create a dict for all supported currencies and an corresponding ID. 
+#	2. I suggest create a dict for all supported currencies and an corresponding ID. Just use currency
+#      name as ID.
 #      Instead of saving Order.name, we should save Order.quote_currency and Order.base_currency as ID, 
 #      and save Order.side as 'buy' or 'sell'. This will allow easy searching. 
 #      We can of course provide a method converting these ID to pair name like "ETH/BTC". 
 #   3. Should add an ID for each order, enabling the TradeAlgo to query and cancel that order. 
 #   4. Instead of saving Order.fill_percentage, save Order.filled. Percentage and remaining should be 
 #      calculated through provided method. 
-#   5. The balance of each currency can be a list, accessed by currency ID. 
+#   5. The balance of each currency can be a list, accessed by currency ID. Lets make Currency String Name
+#      as its ID.
 #   
 # Regarding our general implementation:
 #   1. We don't need to distinguish open order and order. All orders should have filled amount. 
@@ -80,90 +82,94 @@
 
 
 from enum import Enum
+from datetime import datetime
 import math
 
+
+class OrderSide(Enum):
+    Buy = "buy"
+    Sell = "sell"
 
 class OrderType(Enum):
     Limit = "limit"
     Market = "market"
 
+class OrderStatus(Enum):
+    Open = "open"
+    Closed = "closed"
+    Cancelled = "cancelled"
+
 
 class Order(object):
-    def __init__(self, name, price, size, type, timestamp):
-        assert isinstance(type, OrderType), "type must be OrderType"
-        assert size >= 0, "size must be a positive number"
+    def __init__(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+        assert isinstance(order_type, OrderType), "type must be OrderType"
+        assert isinstance(status, OrderStatus), "status must be OrderStatus"
+        assert isinstance(side, OrderSide), "status must be OrderStatus"
+        assert isinstance(quote_name, str), "quote_name must be string"
+        assert isinstance(base_name, str), "base_name must be string"
+        assert isinstance(timestamp, int), "timestamp must be integer"
+        assert amount >= 0, "size must be a positive number"
         assert price >= 0, "price must be a positive number"
-        self.timestamp = timestamp  # a string timestamp
-        self.name = name  # asset name, TODO: can be force to be an ID
-        self.size = size
-        self.price = price
-        self.type = type
 
-    def price(self):
+        self.timestamp = timestamp
+        self.datetime = datetime.fromtimestamp(timestamp/1000.0) # datatime object
+        self.status = status
+        self.type = order_type
+        self.side = side
+        self.quote_name = quote_name
+        self.base_name = base_name
+        self.symbol = quote_name + "/" + base_name
+        self.amount = amount
+        self.price = price
+        self.filled = 0
+        self.remaining = amount
+        self.trades = []
+        self.fee = {}
+        self.id = self.get_unique_id()
+
+    def get_unique_id(self):
+        # should be unique, datetime + symbol
+        return self.get_datetime() + ':' + self.symbol
+
+    def get_datetime(self):
+        return self.datetime.isoformat()
+
+    def get_id(self):
+        return self.id
+
+    def get_price(self):
         return self.price
 
-    def size(self):
-        return self.size
+    def get_amount(self):
+        return self.amount
 
-    def type(self):
+    def get_type(self):
         return self.type
 
-    def timestamp(self):
+    def get_status(self):
+        return self.status
+
+    def get_timestamp(self):
         return self.timestamp
 
-    def name(self):
-        return self.name
+    def get_side(self):
+        return self.side
 
+    def get_filled_percentage(self):
+        return 1.0 * self.filled / self.amount
 
-class OpenOrder(Order):
-    def __init__(self, price, size, type, timestamp):
-        super(OpenOrder, self).__init__(price, size, type, timestamp)
-        # initially, open order's filling percentage is 0
-        self.fill_percentage = 0
+    def get_trades(self):
+        return self.trades
 
-    def get_unfilled_amount(self):
-        return self.fill_percentage * self.size
-
-    def get_fillable_amount(self, try_amount):
-        return try_amount if try_amount <= self.get_unfilled_amount() else self.get_unfilled_amount()
-
-    def fill(self, amount):
-        # Python 3 auto converts to float
-        self.fill_percentage += (amount / self.size)
-
-    def filled(self):
-        # still we use 10^-9 as float error
-        return math.abs(self.fill_percentage - 1.0) < 10**(-9)
-
+    def get_symbol(self):
+        return self.symbol
 
 
 class OrderBook(object):
     def __init__(self):
-        self.buys = []
-        self.sells = []
-
-    # True: buy; False: sell
-    def add_order(self, order, buy=True):
-        if buy:
-            self.add_buy_order(order)
-        else:
-            self.add_sell_order(order)
-
-    def add_buy_order(self, order):
-        pass
-
-    def add_sell_order(self, order):
-        pass
+        self.book = {}
 
 
-class OpenOrderBook(OrderBook):
-    def __init__(self):
-        super(OpenOrderBook, self).__init__()
-
-
-class HistoryOrderBook(OrderBook):
-    def __init__(self):
-        super(HistoryOrderBook, self).__init__()
 
 
 class Record(object):
