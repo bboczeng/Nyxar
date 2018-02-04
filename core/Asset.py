@@ -21,6 +21,11 @@ class AssetFields(Enum):
     Close = "close"
     Volume = "volume"
 
+class AssetReadMode(Enum):
+    CSV = "csv"
+    URL = "url"
+    API = "api"
+
 
 """
 The base class for asset
@@ -29,9 +34,11 @@ The base class for asset
 
 class AssetBase(object):
 
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, quote_name, base_name):
+        # for example, QTUM/BTC
+        self.name = quote_name + "/" + base_name
         self.data = None
+
 
     def read_from_csv(self, file_path):
         pass
@@ -67,8 +74,8 @@ Asset class using CSV readers
 
 
 class AssetCSV(AssetBase):
-    def __init__(self, name, file_path):
-        super(AssetCSV, self).__init__(name)
+    def __init__(self, quote_name, base_name, file_path):
+        super(AssetCSV, self).__init__(quote_name, base_name)
         # read data
         self.read_from_csv(file_path)
 
@@ -100,3 +107,24 @@ class AssetCSV(AssetBase):
         except Exception:
             raise KeyError(timestamp + " or " + field + " does not exist in Asset's data")
 
+
+class Assets(object):
+    def __init__(self):
+        self.assets = {}
+        pass
+
+    def add_asset(self, quote_name, base_name, mode, extra_info):
+        name = quote_name + '/' + base_name
+        assert isinstance(mode, AssetReadMode), "mode has to be a valid AssetReadMode"
+        if mode == AssetReadMode.CSV:
+            if name in self.assets:
+                print("asset %s has been already added, now overwritten".format(name))
+                # extra_info has to be a file path for CSVs
+                self.assets[name] = AssetCSV(quote_name, base_name, extra_info)
+        else:
+            raise Exception("add asset method: %s not implemented yet".format(mode))
+
+    def get_asset(self, name):
+        if name not in self.assets:
+            raise Exception("asset %s not added yet".format(name))
+        return self.assets[name]
