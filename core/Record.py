@@ -178,8 +178,10 @@ class OrderBook(object):
         if order_id in self.book:
             return self.book[order_id]
         else:
-            print("order id %s not found".format(order.id))
+            print("order id %s is not found.".format(order.id))
             return None
+
+    def execute_order(self, Assets):
 
 class Trade(object):
     pass
