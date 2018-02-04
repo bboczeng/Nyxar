@@ -80,7 +80,7 @@
 #
 #############
 
-
+from Asset import Assets
 from enum import Enum
 from datetime import datetime
 import math
@@ -110,7 +110,8 @@ class Order(object):
         assert isinstance(timestamp, int), "timestamp must be integer"
         assert isinstance(amount, int), "amount must be integer"
         assert amount >= 0, "size must be a positive number"
-        assert price >= 0, "price must be a positive number"
+        if order_type == OrderType.Limit:
+            assert price >= 0, "price must be a positive number"
 
         self.timestamp = timestamp
         self.datetime = datetime.fromtimestamp(timestamp/1000.0) # datatime object
@@ -119,7 +120,7 @@ class Order(object):
         self.side = side
         self.quote_name = quote_name
         self.base_name = base_name
-        self.symbol = quote_name + "/" + base_name
+        self.name = quote_name + "/" + base_name
         self.amount = amount
         self.price = price
         self.filled = 0
@@ -129,8 +130,8 @@ class Order(object):
         self.id = self.get_unique_id()
 
     def get_unique_id(self):
-        # should be unique, datetime + symbol
-        return self.get_datetime() + ':' + self.symbol
+        # should be unique, datetime + name
+        return self.get_datetime() + ':' + self.name
 
     def get_datetime(self):
         return self.datetime.isoformat()
@@ -162,17 +163,69 @@ class Order(object):
     def get_trades(self):
         return self.trades
 
-    def get_symbol(self):
-        return self.symbol
+    def get_name(self):
+        return self.name
+
+    def execute_buy(self, buy_price, buy_amount):
+        balance[self.base_name] -= buy_amount * buy_price
+        self.filled += buy_amount
+        self.remaining -= buy_amount
+        return self.remaining == 0
+
+    def execute_sell(self, sell_price, sell_amount):
+        balance[self.base_name] += sell_amount * sell_price
+        self.filled += sell_amount
+        self.remaining -= sell_amount
+        return self.remaining == 0
+
+    def execute(self, assets, timestamp, balance):
+        # is it assumed that type of assets has already been checked
+        # we can have specific APIs to handle this
+        buy_market_price = assets.get_asset(self.name).price_high(timestamp)
+        sell_market_price = assets.get_asset(self.name).price_low(timestamp)
+        if self.base_name not in balance:
+            balance[self.base_name] = 0
+        base_balance = balance[self.base_name]
+        # market order
+        # assuming no slippage model
+        if self.type == OrderType.Market:
+            # buy
+            if self.side == OrderSide.Buy:
+                to_fill = self.remaining if (self.remaining * buy_market_price <= base_balance) else (base_balance / buy_market_price)
+                return self.execute_buy(buy_market_price, to_fill)
+            # sell
+            elif self.side == OrderSide.Sell:
+                return self.execute_sell(sell_market_price, self.remaining)
+        # limit order
+        # assuming no slippage model
+        elif self.type == OrderType.Limit:
+            if self.side == OrderSide.Buy:
+                if self.price > buy_market_price:
+                    to_fill = self.remaining if (self.remaining * self.price <= base_balance) else (
+                                base_balance / self.price)
+                    return self.execute_buy(buy_market_price, to_fill)
+            elif self.side == OrderSide.Sell:
+                if self.price < sell_market_price:
+                    return self.execute_sell(self.price, self.remaining)
+        return False
 
 
 class OrderBook(object):
     def __init__(self):
         self.book = {}
 
-    def add_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+    def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
         new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
         self.book[new_order.get_id()] = new_order
+
+    def insert_order(self, order):
+        assert isinstance(order, Order), "order must be of Order type"
+        self.book[order.get_id()] = order
+
+    def remove_order(self, order):
+        assert isinstance(order, Order), "order must be of Order type"
+        if order.get_id() in self.book:
+            del self.book[order.get_id()]
 
     def get_order(self, order_id):
         if order_id in self.book:
@@ -181,24 +234,32 @@ class OrderBook(object):
             print("order id %s is not found.".format(order.id))
             return None
 
-    def execute_order(self, Assets):
-
-class Trade(object):
-    pass
+    def __iter__(self):
+        return iter(self.book.values())
 
 
 class Record(object):
-    def __init__(self):
+    def __init__(self, assets):
+        assert isinstance(assets, Assets), "assets has to be Assets class"
         self.balance = {} # balances in each currency
+        self.assets = assets
         self.open_orders = OrderBook()
         self.history_orders = OrderBook()
 
-    def submit_limit_order(self):
-        pass
+    def submit_limit_order(self, quote_name, base_name, price, amount, side, timestamp):
+        self.open_orders.add_new_order(quote_name, base_name, price, amount, OrderType.Limit, side, timestamp)
 
-    def submit_market_order(self):
-        pass
+    def submit_market_order(self, quote_name, base_name, amount, side, timestamp):
+        self.open_orders.add_new_order(quote_name, base_name, None, amount, OrderType.Market, side, timestamp)
 
     # always execute this line for each timestamp during backtest
-    def resolve_open_orders(self):
-        pass
+    def resolve_open_orders(self, timestamp):
+        finished_orders = []
+        for order in self.open_orders:
+            finished = order.execute(self.assets, timestamp, self.balance)
+            if finished:
+                finished_orders.append(order)
+        # for finished orders, add to history order.
+        for order in finished_orders:
+            self.history_orders.insert_order(order)
+            self.open_orders.remove_order(order)
