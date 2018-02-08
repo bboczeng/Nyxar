@@ -80,7 +80,6 @@
 #
 #############
 
-from Asset import Assets
 from enum import Enum
 from datetime import datetime
 import math
@@ -90,9 +89,11 @@ class OrderSide(Enum):
     Buy = "buy"
     Sell = "sell"
 
+
 class OrderType(Enum):
     Limit = "limit"
     Market = "market"
+
 
 class OrderStatus(Enum):
     Open = "open"
@@ -103,7 +104,6 @@ class OrderStatus(Enum):
 class Order(object):
     def __init__(self, quote_name, base_name, price, amount, order_type, side, timestamp):
         assert isinstance(order_type, OrderType), "type must be OrderType"
-        assert isinstance(status, OrderStatus), "status must be OrderStatus"
         assert isinstance(side, OrderSide), "status must be OrderStatus"
         assert isinstance(quote_name, str), "quote_name must be string"
         assert isinstance(base_name, str), "base_name must be string"
@@ -115,23 +115,22 @@ class Order(object):
 
         self.timestamp = timestamp
         self.datetime = datetime.fromtimestamp(timestamp/1000.0) # datatime object
-        self.status = status
+        self.status = OrderStatus.Open
         self.type = order_type
         self.side = side
         self.quote_name = quote_name
         self.base_name = base_name
-        self.name = quote_name + "/" + base_name
+        self.symbol = quote_name + "/" + base_name
         self.amount = amount
         self.price = price
         self.filled = 0
-        self.remaining = amount
-        self.trades = []
+        self.transactions = []
         self.fee = {}
         self.id = self.get_unique_id()
 
     def get_unique_id(self):
         # should be unique, datetime + name
-        return self.get_datetime() + ':' + self.name
+        return self.get_datetime() + ':' + self.symbol
 
     def get_datetime(self):
         return self.datetime.isoformat()
@@ -144,6 +143,9 @@ class Order(object):
 
     def get_amount(self):
         return self.amount
+
+    def get_remaining(self):
+        return self.amount - self.filled
 
     def get_type(self):
         return self.type
@@ -160,54 +162,29 @@ class Order(object):
     def get_filled_percentage(self):
         return 1.0 * self.filled / self.amount
 
-    def get_trades(self):
-        return self.trades
+    def get_transactions(self):
+        return self.transactions
 
-    def get_name(self):
-        return self.name
+    def get_base_name(self):
+        return self.base_name
 
-    def execute_buy(self, buy_price, buy_amount):
-        balance[self.base_name] -= buy_amount * buy_price
-        self.filled += buy_amount
-        self.remaining -= buy_amount
-        return self.remaining == 0
+    def get_quote_name(self):
+        return self.quote_name
 
-    def execute_sell(self, sell_price, sell_amount):
-        balance[self.base_name] += sell_amount * sell_price
-        self.filled += sell_amount
-        self.remaining -= sell_amount
-        return self.remaining == 0
+    def get_symbol(self):
+        return self.symbol
 
-    def execute(self, assets, timestamp, balance):
-        # is it assumed that type of assets has already been checked
-        # we can have specific APIs to handle this
-        buy_market_price = assets.get_asset(self.name).price_high(timestamp)
-        sell_market_price = assets.get_asset(self.name).price_low(timestamp)
-        if self.base_name not in balance:
-            balance[self.base_name] = 0
-        base_balance = balance[self.base_name]
-        # market order
-        # assuming no slippage model
-        if self.type == OrderType.Market:
-            # buy
-            if self.side == OrderSide.Buy:
-                to_fill = self.remaining if (self.remaining * buy_market_price <= base_balance) else (base_balance / buy_market_price)
-                return self.execute_buy(buy_market_price, to_fill)
-            # sell
-            elif self.side == OrderSide.Sell:
-                return self.execute_sell(sell_market_price, self.remaining)
-        # limit order
-        # assuming no slippage model
-        elif self.type == OrderType.Limit:
-            if self.side == OrderSide.Buy:
-                if self.price > buy_market_price:
-                    to_fill = self.remaining if (self.remaining * self.price <= base_balance) else (
-                                base_balance / self.price)
-                    return self.execute_buy(buy_market_price, to_fill)
-            elif self.side == OrderSide.Sell:
-                if self.price < sell_market_price:
-                    return self.execute_sell(self.price, self.remaining)
-        return False
+    def execute_transaction(self, transaction):
+        assert isinstance(transaction, Transaction), "type must be transaction"
+
+        if transaction.side == OrderSide.Buy:
+            self.filled += transaction.amount
+            self.transactions.append(transaction)
+        else:
+            self.filled += transaction.amount
+            self.transactions.append(transaction)
+
+        return self.amount - self.filled == 0
 
 
 class OrderBook(object):
@@ -231,35 +208,22 @@ class OrderBook(object):
         if order_id in self.book:
             return self.book[order_id]
         else:
-            print("order id %s is not found.".format(order.id))
+            print("order id %s is not found.".format(Order.id))
             return None
 
     def __iter__(self):
         return iter(self.book.values())
 
 
-class Record(object):
-    def __init__(self, assets):
-        assert isinstance(assets, Assets), "assets has to be Assets class"
-        self.balance = {} # balances in each currency
-        self.assets = assets
-        self.open_orders = OrderBook()
-        self.history_orders = OrderBook()
+class Transaction(object):
+    def __init__(self, quote_name, base_name, price, amount, side, timestamp):
+        self.timestamp = timestamp
+        self.side = side
+        self.quote_name = quote_name
+        self.base_name = base_name
+        self.amount = amount
+        self.price = price
 
-    def submit_limit_order(self, quote_name, base_name, price, amount, side, timestamp):
-        self.open_orders.add_new_order(quote_name, base_name, price, amount, OrderType.Limit, side, timestamp)
-
-    def submit_market_order(self, quote_name, base_name, amount, side, timestamp):
-        self.open_orders.add_new_order(quote_name, base_name, None, amount, OrderType.Market, side, timestamp)
-
-    # always execute this line for each timestamp during backtest
-    def resolve_open_orders(self, timestamp):
-        finished_orders = []
-        for order in self.open_orders:
-            finished = order.execute(self.assets, timestamp, self.balance)
-            if finished:
-                finished_orders.append(order)
-        # for finished orders, add to history order.
-        for order in finished_orders:
-            self.history_orders.insert_order(order)
-            self.open_orders.remove_order(order)
+    def __repr__(self):
+        return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
+               self.quote_name + ' at price ' + str(self.price) + ' per ' + self.base_name
