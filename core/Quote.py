@@ -52,7 +52,6 @@ class QuoteBase(object):
     def get_value(self, timestamp, field):
         pass
 
-    # may use closure
     def price_high(self, timestamp):
         return self.get_value(timestamp, QuoteFields.High)
 
@@ -65,8 +64,13 @@ class QuoteBase(object):
     def price_close(self, timestamp):
         return self.get_value(timestamp, QuoteFields.Close)
 
-    def price_volume(self, timestamp):
+    def volume(self, timestamp):
         return self.get_value(timestamp, QuoteFields.Volume)
+
+    def ohlcv(self, timestamp):
+        return {'open': self.price_open(timestamp), 'high': self.price_high(timestamp),
+                'low': self.price_low(timestamp), 'close': self.price_close(timestamp),
+                'volume': self.volume(timestamp)}
 
 
 """
@@ -126,15 +130,16 @@ class Quotes(object):
             raise Exception("asset %s not added yet".format(name))
         return self.quotes[name]
 
-    def get_quote_list(self):
+    def get_symbols(self):
         return self.quotes.keys()
 
-    def get_asset_list(self):
+    def get_assets(self):
         assets = set()
         for quote in self.quotes:
             assets.add(self.quotes[quote].quote_name)
             assets.add(self.quotes[quote].base_name)
         return assets
+
 
 def batch_quotes_csv_reader(directory_name):
     """

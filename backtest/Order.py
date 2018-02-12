@@ -82,7 +82,7 @@
 
 from enum import Enum
 from datetime import datetime
-import math
+import queue
 
 
 class OrderSide(Enum):
@@ -96,13 +96,15 @@ class OrderType(Enum):
 
 
 class OrderStatus(Enum):
+    Submitted = "submitted"
     Open = "open"
-    Closed = "closed"
+    Filled = "filled"
     Cancelled = "cancelled"
 
 
 class Order(object):
-    def __init__(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+    def __init__(self, quote_name: str, base_name: str, price: float, amount: float, order_type: OrderType,
+                 side: OrderSide, timestamp: int):
         assert isinstance(order_type, OrderType), "type must be OrderType"
         assert isinstance(side, OrderSide), "status must be OrderStatus"
         assert isinstance(quote_name, str), "quote_name must be string"
@@ -114,8 +116,8 @@ class Order(object):
             assert price >= 0, "price must be a positive number"
 
         self.timestamp = timestamp
-        self.datetime = datetime.fromtimestamp(timestamp/1000.0) # datatime object
-        self.status = OrderStatus.Open
+        self.datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
+        self.status = OrderStatus.Submitted
         self.type = order_type
         self.side = side
         self.quote_name = quote_name
@@ -128,38 +130,38 @@ class Order(object):
         self.fee = {}
         self.id = self.get_unique_id()
 
-    def get_unique_id(self):
+    def get_unique_id(self) -> str:
         # should be unique, datetime + name
-        return self.get_datetime() + ':' + self.symbol
+        return self.get_datetime().isoformat() + ':' + self.symbol
 
-    def get_datetime(self):
-        return self.datetime.isoformat()
+    def get_datetime(self) -> datetime:
+        return self.datetime
 
-    def get_id(self):
+    def get_id(self) -> str:
         return self.id
 
-    def get_price(self):
+    def get_price(self) -> float:
         return self.price
 
-    def get_amount(self):
+    def get_amount(self) -> float:
         return self.amount
 
-    def get_remaining(self):
+    def get_remaining(self) -> float:
         return self.amount - self.filled
 
-    def get_type(self):
+    def get_type(self) -> OrderType:
         return self.type
 
-    def get_status(self):
+    def get_status(self) -> OrderStatus:
         return self.status
 
-    def get_timestamp(self):
+    def get_timestamp(self) -> int:
         return self.timestamp
 
-    def get_side(self):
+    def get_side(self) -> OrderSide:
         return self.side
 
-    def get_filled_percentage(self):
+    def get_filled_percentage(self) -> float:
         return 1.0 * self.filled / self.amount
 
     def get_transactions(self):
@@ -174,7 +176,32 @@ class Order(object):
     def get_symbol(self):
         return self.symbol
 
-    def execute_transaction(self, transaction):
+    def get_info(self):
+        return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status,
+                'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value, 'price': self.price,
+                'amount': self.amount, 'filled': self.filled, 'remaining': self.get_remaining(),
+                'transaction': self.transactions}
+
+    def cancel(self):
+        self.status = OrderStatus.Cancelled
+
+    def open(self):
+        assert self.type is not OrderType.Market
+        self.status = OrderStatus.Open
+
+    def generate_transaction(self, *, amount: float, price: float, timestamp: int) -> Transaction:
+        return Transaction(quote_name=self.quote_name,
+                           base_name=self.base_name,
+                           price=price,
+                           amount=amount,
+                           side=self.side,
+                           timestamp=timestamp)
+
+    def execute_transaction(self, transaction: Transaction) -> bool:
+        """
+        Returns:
+             A bool indicates whether the order is filled or not.
+        """
         assert isinstance(transaction, Transaction), "type must be transaction"
 
         if transaction.side == OrderSide.Buy:
@@ -184,46 +211,89 @@ class Order(object):
             self.filled += transaction.amount
             self.transactions.append(transaction)
 
-        return self.amount - self.filled == 0
+        assert self.amount - self.filled >= 0
+
+        if self.amount - self.filled == 0:
+            self.status = OrderStatus.Filled
+            return True
+        else:
+            return False
+
+    def pay_fee(self, asset: str, amount: float):
+        if asset not in self.fee:
+            self.fee[asset] = amount
+        else:
+            self.fee[asset] += amount
+
+
+class Transaction(object):
+    def __init__(self, *, quote_name: str, base_name: str, price: float, amount: float, side: OrderSide,
+                 timestamp: int):
+        self.timestamp = timestamp
+        self.datetime = datetime.fromtimestamp(timestamp / 1000.0)
+        self.side = side
+        self.quote_name = quote_name
+        self.base_name = base_name
+        self.symbol = quote_name + "/" + base_name
+        self.amount = amount
+        self.price = price
+        self.id = self.get_unique_id()
+
+    def get_unique_id(self) -> str:
+        # should be unique, datetime + name
+        return self.get_datetime().isoformat() + ':' + self.symbol
+
+    def get_datetime(self) -> datetime:
+        return self.datetime
+
+    def get_id(self) -> str:
+        return self.id
+
+    def __repr__(self):
+        return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
+               self.quote_name + ' at price ' + str(self.price) + ' per ' + self.base_name
 
 
 class OrderBook(object):
     def __init__(self):
         self.book = {}
 
-    def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
-        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
-        self.book[new_order.get_id()] = new_order
+    #def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+    #    new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
+    #    self.book[new_order.get_id()] = new_order
+    #    return new_order.get_id()
 
-    def insert_order(self, order):
-        assert isinstance(order, Order), "order must be of Order type"
+    def insert_order(self, order: Order):
         self.book[order.get_id()] = order
 
-    def remove_order(self, order):
-        assert isinstance(order, Order), "order must be of Order type"
+    def remove_order(self, order: Order):
         if order.get_id() in self.book:
             del self.book[order.get_id()]
 
-    def get_order(self, order_id):
+    def get_order(self, order_id: str) -> Order:
         if order_id in self.book:
             return self.book[order_id]
         else:
-            print("order id %s is not found.".format(Order.id))
             return None
 
     def __iter__(self):
         return iter(self.book.values())
 
 
-class Transaction(object):
-    def __init__(self, quote_name, base_name, price, amount, side, timestamp):
-        self.timestamp = timestamp
-        self.side = side
-        self.quote_name = quote_name
-        self.base_name = base_name
-        self.amount = amount
-        self.price = price
+class OrderQueue(object):
+    def __init__(self):
+        self.queue = queue.Queue()
 
-    def __repr__(self):
-        return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
-               self.quote_name + ' at price ' + str(self.price) + ' per ' + self.base_name
+    def put_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
+        self.queue.put(new_order)
+        return new_order.get_id()
+
+    def get_order(self):
+        return self.queue.get()
+
+    def is_empty(self):
+        return self.queue.empty()
+
+    def __iter__(self):
+        return self.queue
