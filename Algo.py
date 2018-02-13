@@ -1,4 +1,4 @@
-from backtest.backexchange import BackExchange
+from backtest.BackExchange import BackExchange
 
 
 class TradingAlgo(object):

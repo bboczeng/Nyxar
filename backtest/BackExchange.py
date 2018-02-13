@@ -1,8 +1,8 @@
-from backtest.errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
+from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
 
-from core.quote import Quotes, QuoteFields
-from backtest.order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue, Transaction
-from backtest.slippage import slippage_base
+from core.Quote import Quotes, QuoteFields
+from backtest.Order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue, Transaction
+from backtest.Slippage import slippage_base
 
 from enum import Enum
 from typing import List, Set, Tuple

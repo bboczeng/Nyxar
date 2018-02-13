@@ -1,5 +1,5 @@
-import core.quote as q
-from backtest.backexchange import BackExchange
+import core.Quote as q
+from backtest.BackExchange import BackExchange
 from Algo import TradingAlgo
 
 file_path = '.../NewData/binance/test/'
