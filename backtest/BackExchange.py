@@ -37,7 +37,7 @@ class BackExchange(object):
             self.total_balance[asset] = 0
             self.available_balance[asset] = 0
 
-        self.submitted_order = OrderQueue()
+        self.submitted_orders = OrderQueue()
         self.open_orders = OrderBook()
         self.closed_orders = OrderBook()
 
@@ -156,6 +156,9 @@ class BackExchange(object):
         self.available_balance[quote_name] += amount - fee
         self.total_balance[base_name] -= price * amount
         # self.available_balance[base_name] -= price * amount
+        # Limit buy order may be filled with lower price, in which case the in order price needs to be compensated
+        if order.get_type() is OrderType.Limit:
+            self.available_balance[base_name] += (order.get_price() - price) * amount
         order.pay_fee(quote_name, fee)
 
         return is_filled
@@ -263,15 +266,16 @@ class BackExchange(object):
                 print('[BackExchange] Limit buy order {:s} filled. '.format(order.get_id()))
             else:
                 print('[BackExchange] Limit buy order {:s} partially filled to {:2}%. '.format(order.get_id(),
-                                                                                               order.get_filled_percentage()))
+                                                                                         order.get_filled_percentage()))
         elif order.get_side() is OrderSide.Sell and price >= order.get_price():
-            self.__execute_sell(order, price, amount)
+            # Limit sell order never executes above the order price, even if there is a buy order with higher price
+            self.__execute_sell(order, order.get_price(), amount)
 
             if order.get_status() is OrderStatus.Filled:
                 print('[BackExchange] Limit sell order {:s} filled. '.format(order.get_id()))
             else:
                 print('[BackExchange] Limit sell order {:s} partially filled to {:2}%. '.format(order.get_id(),
-                                                                                               order.get_filled_percentage()))
+                                                                                         order.get_filled_percentage()))
 
         return order.get_status()
 
@@ -298,28 +302,81 @@ class BackExchange(object):
 
     def create_market_buy_order(self, *, symbol, amount):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Buy,
-                                                  self.current_timestamp)
+        return self.submitted_orders.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Buy,
+                                                   self.current_timestamp)
 
     def create_market_sell_order(self, *, symbol, amount):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Sell,
-                                                  self.current_timestamp)
+        return self.submitted_orders.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Sell,
+                                                   self.current_timestamp)
 
     def create_limit_buy_order(self, *, symbol, amount, price):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Buy,
-                                                  self.current_timestamp)
+        return self.submitted_orders.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Buy,
+                                                   self.current_timestamp)
 
     def create_limit_sell_order(self, *, symbol, amount, price):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Sell,
-                                                  self.current_timestamp)
+        return self.submitted_orders.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Sell,
+                                                   self.current_timestamp)
 
-    def resolve_orders(self):
+    def cancel_submitted_order(self, order_id: str):
+        """
+        Submitted order is like a cache. If submitted order is cancelled, it is as if the request if not sent to the
+        exchange. Therefore, it does not leave any history.
+        """
+        self.submitted_orders.get_order(order_id).cancel()
+
+    def cancel_open_order(self, order_id: str):
+        order = self.open_orders.get_order(order_id)
+        # order status
+        order.cancel()
+        # order book management
+        self.open_orders.remove_order(order)
+        self.closed_orders.insert_order(order)
+        # in order balance refund
+        if order.get_side() is OrderSide.Buy:
+            self.available_balance[order.get_base_name()] += order.get_remaining() * order.get_price()
+        elif order.get_side() is OrderSide.Sell:
+            self.available_balance[order.get_quote_name()] += order.get_remaining()
+        print("[BackExchange] Open order {:s} cancelled. ".format(order_id))
+
+    def fetch_submitted_order(self, order_id: str) -> dict:
+        return self.submitted_orders.get_order(order_id).get_info()
+
+    def fetch_order(self, order_id: str) -> dict:
+        try:
+            order = self.open_orders.get_order(order_id)
+        except OrderNotFound:
+            order = self.closed_orders.get_order(order_id)
+
+        return order.get_info()
+
+    def fetch_orders(self, *, symbol='', since='', limit=0):
+        orders = []
+        pass
+
+    def fetch_open_orders(self, *, symbol='', since='', limit=0):
+        orders = []
+        pass
+
+    def fetch_closed_orders(self, *, symbol='', since='', limit=0):
+        orders = []
+        pass
+
+    def balance_consistency_check(self):
+        pass
+
+    def process_timestamp(self):
+        print('[BackExchange] Current timestamp: {}'.format(self.current_timestamp))
+
+        # process viable assets and pairs
+        pass
+
+        # resolve orders
         # resolve submitted order
-        while not self.submitted_order.is_empty():
-            order = self.submitted_order.pop_order()
+        while not self.submitted_orders.is_empty():
+            order = self.submitted_orders.pop_order()
             if order.type is OrderType.Market:
                 self.__accept_market_order(order)
             elif order.type is OrderType.Limit:
@@ -332,56 +389,7 @@ class BackExchange(object):
                 self.open_orders.remove_order(order)
                 self.closed_orders.insert_order(order)
 
-    def cancel_submitted_order(self, order_id: str):
-        self.submitted_order.get_order(order_id).cancel()
-
-    def cancel_open_order(self):
-        pass
-
-    def fetch_order(self, order_id: str):
-        order = self.open_orders.get_order(order_id)
-        if order is None:
-            order = self.closed_orders.get_order(order_id)
-        if order is None:
-            raise OrderNotFound
-        else:
-            return order.get_info()
-
-    def fetch_submitted_order(self, order_id: str) -> dict:
-        return self.submitted_order.get_order(order_id).get_info()
-
-    def fetch_open_orders(self, symbol=''):
-        orders = []
-        for order in self.open_orders:
-            if symbol != '' and order.get_symbol() != symbol:
-                continue
-            else:
-                orders.append(order.get_info())
-        return orders
-
-    def fetch_closed_orders(self, symbol=''):
-        orders = []
-        for order in self.closed_orders:
-            if symbol != '' and order.get_symbol() != symbol:
-                continue
-            else:
-                orders.append(order.get_info())
-        return orders
-
-    def fetch_orders(self, symbol=''):
-        return self.fetch_open_orders(symbol) + self.fetch_closed_orders(symbol)
-
-    def balance_consistency_check(self):
-        pass
-
-    def process_timestamp(self):
-        print('[BackExchange] Current timestamp: {}'.format(self.current_timestamp))
-
-        # process viable assets and pairs
-        pass
-
-        # resolve orders
-        self.resolve_orders()
+        self.balance_consistency_check()
 
 
 

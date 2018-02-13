@@ -80,6 +80,8 @@
 #
 #############
 
+from backtest.errors import InvalidOrder, OrderNotFound
+
 from enum import Enum
 from datetime import datetime
 from collections import OrderedDict
@@ -207,7 +209,7 @@ class Order(object):
         return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status,
                 'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value, 'price': self.price,
                 'amount': self.amount, 'filled': self.filled, 'remaining': self.get_remaining(),
-                'transaction': self.transactions}
+                'transaction': self.transactions, 'fee': self.fee}
 
     def cancel(self):
         self.status = OrderStatus.Cancelled
@@ -268,12 +270,14 @@ class OrderBook(object):
     def remove_order(self, order: Order):
         if order.get_id() in self.book:
             del self.book[order.get_id()]
+        else:
+            raise OrderNotFound
 
     def get_order(self, order_id: str) -> Order:
         if order_id in self.book:
             return self.book[order_id]
         else:
-            return None
+            raise OrderNotFound
 
     def is_empty(self):
         return len(self.book) == 0
