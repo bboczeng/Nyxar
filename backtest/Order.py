@@ -82,8 +82,7 @@
 
 from enum import Enum
 from datetime import datetime
-import queue
-
+from collections import OrderedDict
 
 class OrderSide(Enum):
     Buy = "buy"
@@ -100,6 +99,34 @@ class OrderStatus(Enum):
     Open = "open"
     Filled = "filled"
     Cancelled = "cancelled"
+
+
+class Transaction(object):
+    def __init__(self, *, quote_name: str, base_name: str, price: float, amount: float, side: OrderSide,
+                 timestamp: int):
+        self.timestamp = timestamp
+        self.datetime = datetime.fromtimestamp(timestamp / 1000.0)
+        self.side = side
+        self.quote_name = quote_name
+        self.base_name = base_name
+        self.symbol = quote_name + "/" + base_name
+        self.amount = amount
+        self.price = price
+        self.id = self.get_unique_id()
+
+    def get_unique_id(self) -> str:
+        # should be unique, datetime + name
+        return self.get_datetime().isoformat() + ':' + self.symbol
+
+    def get_datetime(self) -> datetime:
+        return self.datetime
+
+    def get_id(self) -> str:
+        return self.id
+
+    def __repr__(self):
+        return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
+               self.quote_name + ' at price ' + str(self.price) + ' per ' + self.base_name
 
 
 class Order(object):
@@ -226,42 +253,14 @@ class Order(object):
             self.fee[asset] += amount
 
 
-class Transaction(object):
-    def __init__(self, *, quote_name: str, base_name: str, price: float, amount: float, side: OrderSide,
-                 timestamp: int):
-        self.timestamp = timestamp
-        self.datetime = datetime.fromtimestamp(timestamp / 1000.0)
-        self.side = side
-        self.quote_name = quote_name
-        self.base_name = base_name
-        self.symbol = quote_name + "/" + base_name
-        self.amount = amount
-        self.price = price
-        self.id = self.get_unique_id()
-
-    def get_unique_id(self) -> str:
-        # should be unique, datetime + name
-        return self.get_datetime().isoformat() + ':' + self.symbol
-
-    def get_datetime(self) -> datetime:
-        return self.datetime
-
-    def get_id(self) -> str:
-        return self.id
-
-    def __repr__(self):
-        return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
-               self.quote_name + ' at price ' + str(self.price) + ' per ' + self.base_name
-
-
 class OrderBook(object):
     def __init__(self):
         self.book = {}
 
-    #def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
-    #    new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
-    #    self.book[new_order.get_id()] = new_order
-    #    return new_order.get_id()
+    def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
+        self.book[new_order.get_id()] = new_order
+        return new_order.get_id()
 
     def insert_order(self, order: Order):
         self.book[order.get_id()] = order
@@ -276,24 +275,19 @@ class OrderBook(object):
         else:
             return None
 
+    def is_empty(self):
+        return len(self.book) == 0
+
+    def get_all_order_id(self) -> set:
+        return set(self.book.keys())
+
     def __iter__(self):
         return iter(self.book.values())
 
 
-class OrderQueue(object):
+class OrderQueue(OrderBook):
     def __init__(self):
-        self.queue = queue.Queue()
+        self.book = OrderedDict()
 
-    def put_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
-        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
-        self.queue.put(new_order)
-        return new_order.get_id()
-
-    def get_order(self):
-        return self.queue.get()
-
-    def is_empty(self):
-        return self.queue.empty()
-
-    def __iter__(self):
-        return self.queue
+    def pop_order(self) -> Order:
+        return self.book.popitem(last=False)[1]
