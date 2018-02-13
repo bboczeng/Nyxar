@@ -1,6 +1,6 @@
 from backtest.errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
 
-from core.quote import Quotes
+from core.quote import Quotes, QuoteFields
 from backtest.order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue, Transaction
 from backtest.slippage import slippage_base
 
@@ -10,16 +10,18 @@ from typing import List, Set, Tuple
 
 # to do: restrict returned order number
 #        stop limit / stop loss order
+#        asset rebrand
+#        newly listed asset / delisted asset
 
 class PriceType(Enum):
-    Open = 'open'
-    High = 'high'
-    Low = 'low'
-    Close = 'closing' # needs to be fixed
+    Open = QuoteFields.Open
+    High = QuoteFields.High
+    Low = QuoteFields.Low
+    Close = QuoteFields.Close
 
 
 class BackExchange(object):
-    def __init__(self, quotes: Quotes, buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
+    def __init__(self, *, quotes: Quotes, buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
                  fee_rate=0.05, slippage_model=slippage_base, supplement_data=None):
         assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
         assert isinstance(buy_price, PriceType), "quotes has to be Quotes class"
@@ -230,6 +232,7 @@ class BackExchange(object):
             self.__execute_market_order(order)
             assert order.get_status() is OrderStatus.Filled
             self.closed_orders.insert_order(order)
+            print('[BackExchange] Market order {:s} accepted and executed. '.format(order.get_id()))
 
     def __execute_limit_order(self, order: Order):
         """
@@ -253,10 +256,22 @@ class BackExchange(object):
         if price < 0 or amount > order.get_remaining():
             raise SlippageModelError
 
-        if order.get_side() is OrderSide.Sell and price >= order.get_price():
+        if order.get_side() is OrderSide.Buy and price <= order.get_price():
             self.__execute_buy(order, price, amount)
-        elif order.get_side() is OrderSide.Buy and price <= order.get_price():
+
+            if order.get_status() is OrderStatus.Filled:
+                print('[BackExchange] Limit buy order {:s} filled. '.format(order.get_id()))
+            else:
+                print('[BackExchange] Limit buy order {:s} partially filled to {:2}%. '.format(order.get_id(),
+                                                                                               order.get_filled_percentage()))
+        elif order.get_side() is OrderSide.Sell and price >= order.get_price():
             self.__execute_sell(order, price, amount)
+
+            if order.get_status() is OrderStatus.Filled:
+                print('[BackExchange] Limit sell order {:s} filled. '.format(order.get_id()))
+            else:
+                print('[BackExchange] Limit sell order {:s} partially filled to {:2}%. '.format(order.get_id(),
+                                                                                               order.get_filled_percentage()))
 
         return order.get_status()
 
@@ -279,44 +294,46 @@ class BackExchange(object):
                 self.available_balance[quote_name] -= order.get_amount()
             order.open()
             self.open_orders.insert_order(order)
+            print('[BackExchange] Limit order {:s} accepted. '.format(order.get_id()))
 
     def create_market_buy_order(self, *, symbol, amount):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.put_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Buy,
-                                              self.current_timestamp)
+        return self.submitted_order.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Buy,
+                                                  self.current_timestamp)
 
     def create_market_sell_order(self, *, symbol, amount):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.put_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Sell,
-                                              self.current_timestamp)
+        return self.submitted_order.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Sell,
+                                                  self.current_timestamp)
 
     def create_limit_buy_order(self, *, symbol, amount, price):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.put_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Buy,
-                                              self.current_timestamp)
+        return self.submitted_order.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Buy,
+                                                  self.current_timestamp)
 
     def create_limit_sell_order(self, *, symbol, amount, price):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self.submitted_order.put_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Sell,
-                                              self.current_timestamp)
+        return self.submitted_order.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Sell,
+                                                  self.current_timestamp)
 
     def resolve_orders(self):
         # resolve submitted order
         while not self.submitted_order.is_empty():
-            order = self.submitted_order.get_order()
+            order = self.submitted_order.pop_order()
             if order.type is OrderType.Market:
                 self.__accept_market_order(order)
             elif order.type is OrderType.Limit:
                 self.__accept_limit_order(order)
 
         # resolve open orders
-        for order in self.open_orders:
+        for order_id in self.open_orders.get_all_order_id():
+            order = self.open_orders.get_order(order_id)
             if self.__execute_limit_order(order):
                 self.open_orders.remove_order(order)
                 self.closed_orders.insert_order(order)
 
-    def cancel_submitted_order(self):
-        pass
+    def cancel_submitted_order(self, order_id: str):
+        self.submitted_order.get_order(order_id).cancel()
 
     def cancel_open_order(self):
         pass
@@ -330,8 +347,8 @@ class BackExchange(object):
         else:
             return order.get_info()
 
-    def fetch_submitted_order(self, order_id: str):
-        pass
+    def fetch_submitted_order(self, order_id: str) -> dict:
+        return self.submitted_order.get_order(order_id).get_info()
 
     def fetch_open_orders(self, symbol=''):
         orders = []
@@ -353,3 +370,18 @@ class BackExchange(object):
 
     def fetch_orders(self, symbol=''):
         return self.fetch_open_orders(symbol) + self.fetch_closed_orders(symbol)
+
+    def balance_consistency_check(self):
+        pass
+
+    def process_timestamp(self):
+        print('[BackExchange] Current timestamp: {}'.format(self.current_timestamp))
+
+        # process viable assets and pairs
+        pass
+
+        # resolve orders
+        self.resolve_orders()
+
+
+
