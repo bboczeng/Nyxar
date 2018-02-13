@@ -80,7 +80,7 @@
 #
 #############
 
-from backtest.errors import InvalidOrder, OrderNotFound
+from backtest.Errors import InvalidOrder, OrderNotFound
 
 from enum import Enum
 from datetime import datetime
