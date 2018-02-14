@@ -24,8 +24,8 @@ class BackExchange(object):
     def __init__(self, *, quotes: Quotes, buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
                  fee_rate=0.05, slippage_model=slippage_base, supplement_data=None):
         assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
-        assert isinstance(buy_price, PriceType), "quotes has to be Quotes class"
-        assert isinstance(sell_price, PriceType), "quotes has to be Quotes class"
+        assert isinstance(buy_price, PriceType), "buy_price has to be PriceType class"
+        assert isinstance(sell_price, PriceType), "sell_price has to be PriceType class"
 
         self.quotes = quotes
         self.symbols = self.quotes.get_symbols()
@@ -367,7 +367,8 @@ class BackExchange(object):
     def balance_consistency_check(self):
         pass
 
-    def process_timestamp(self):
+    def process_timestamp(self, time_stamp):
+        self.current_timestamp = time_stamp
         print('[BackExchange] Current timestamp: {}'.format(self.current_timestamp))
 
         # process viable assets and pairs
