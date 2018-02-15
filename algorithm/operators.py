@@ -38,6 +38,7 @@ class SMA(OperatorsBase):
         self.price_queue = deque(maxlen=window_size)
         self.field = field
         self.sma = None
+        self.operator_name = "SMA(" + str(window_size) + ")" + " of " + ticker_name
 
     def get(self):
         if self.last_timestamp == self.exchange.current_timestamp:
