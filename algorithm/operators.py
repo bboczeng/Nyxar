@@ -12,6 +12,7 @@
 #   time stamp, while utilizing its internal storage for necessary modifications. If necessary, a
 #   @memorized or @lazy_evaluate might be used.
 #############
+
 from backtest.BackExchange import BackExchange
 from core.Quote import QuoteFields
 
@@ -67,7 +68,6 @@ class SMA(OperatorsBase):
         self.field = field
         self.sma = None
         self.operator_name = "SMA(" + str(window_size) + ")" + " of " + ticker_name
-
 
     def get(self):
         if self.last_timestamp == self.exchange.current_timestamp:
