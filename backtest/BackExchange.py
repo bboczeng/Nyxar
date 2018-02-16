@@ -6,12 +6,12 @@ from backtest.Slippage import slippage_base
 
 from enum import Enum
 from typing import List, Set, Tuple
+from itertools import chain
 
 
-# to do: restrict returned order number
-#        stop limit / stop loss order
-#        asset rebrand
+# to do: stop limit / stop loss order
 #        newly listed asset / delisted asset
+#        balance in BTC / ETH / USDT
 
 class PriceType(Enum):
     Open = QuoteFields.Open
@@ -36,6 +36,7 @@ class BackExchange(object):
         for asset in self.assets:
             self.total_balance[asset] = 0
             self.available_balance[asset] = 0
+        self.deposit_history = []
 
         self.submitted_orders = OrderQueue()
         self.open_orders = OrderBook()
@@ -82,6 +83,7 @@ class BackExchange(object):
         if asset in self.total_balance:
             self.total_balance[asset] += amount
             self.available_balance[asset] += amount
+            self.deposit_history.append({'timestamp': self.current_timestamp, 'asset': asset, 'amount': amount})
             return amount
         else:
             raise NotSupported
@@ -98,7 +100,8 @@ class BackExchange(object):
                 amount = self.available_balance[asset]
             self.total_balance[asset] -= amount
             self.available_balance[asset] -= amount
-            return amount
+            self.deposit_history.append({'timestamp': self.current_timestamp, 'asset': asset, 'amount': -amount})
+            return -amount
         else:
             raise NotSupported
 
@@ -247,6 +250,7 @@ class BackExchange(object):
         """
         assert order.get_type() is OrderType.Limit
 
+        is_filled = False
         price, amount = self.slippage_model(price=self.__get_price(order.get_symbol(),
                                                                    self.buy_price if order.get_side() is OrderSide.Buy
                                                                    else self.sell_price),
@@ -260,7 +264,7 @@ class BackExchange(object):
             raise SlippageModelError
 
         if order.get_side() is OrderSide.Buy and price <= order.get_price():
-            self.__execute_buy(order, price, amount)
+            is_filled = self.__execute_buy(order, price, amount)
 
             if order.get_status() is OrderStatus.Filled:
                 print('[BackExchange] Limit buy order {:s} filled. '.format(order.get_id()))
@@ -269,7 +273,7 @@ class BackExchange(object):
                                                                                          order.get_filled_percentage()))
         elif order.get_side() is OrderSide.Sell and price >= order.get_price():
             # Limit sell order never executes above the order price, even if there is a buy order with higher price
-            self.__execute_sell(order, order.get_price(), amount)
+            is_filled = self.__execute_sell(order, order.get_price(), amount)
 
             if order.get_status() is OrderStatus.Filled:
                 print('[BackExchange] Limit sell order {:s} filled. '.format(order.get_id()))
@@ -277,7 +281,7 @@ class BackExchange(object):
                 print('[BackExchange] Limit sell order {:s} partially filled to {:2}%. '.format(order.get_id(),
                                                                                          order.get_filled_percentage()))
 
-        return order.get_status()
+        return is_filled
 
     def __accept_limit_order(self, order: Order):
         assert order.get_type() is OrderType.Limit
@@ -352,23 +356,50 @@ class BackExchange(object):
 
         return order.get_info()
 
-    def fetch_orders(self, *, symbol='', since='', limit=0):
-        orders = []
-        pass
+    def fetch_open_orders(self, *, symbol='', limit=0):
+        return self.open_orders.get_orders(symbol, limit, id_only=False)
 
-    def fetch_open_orders(self, *, symbol='', since='', limit=0):
-        orders = []
-        pass
-
-    def fetch_closed_orders(self, *, symbol='', since='', limit=0):
-        orders = []
-        pass
+    def fetch_closed_orders(self, *, symbol='', limit=0):
+        return self.closed_orders.get_orders(symbol, limit, id_only=False)
 
     def balance_consistency_check(self):
-        pass
+        in_order_balance, total_balance = {}, {}
+        for asset in self.assets:
+            in_order_balance[asset] = 0
+            total_balance[asset] = 0
 
-    def process_timestamp(self, time_stamp):
-        self.current_timestamp = time_stamp
+        # check in order balance
+        for order in self.open_orders:
+            if order.get_side() is OrderSide.Buy:
+                in_order_balance[order.get_base_name()] += order.get_remaining() * order.get_price()
+            elif order.get_side() is OrderSide.Sell:
+                in_order_balance[order.get_quote_name()] += order.get_remaining()
+        for asset in in_order_balance:
+            assert round(self.__frozen_balance(asset), 8) == round(in_order_balance[asset], 8)  # this round is ad-hoc
+
+        # check total balance
+        for deposit in self.deposit_history:
+            total_balance[deposit['asset']] += deposit['amount']
+        for order in chain(self.closed_orders, self.open_orders):
+            base_name = order.get_base_name()
+            quote_name = order.get_quote_name()
+            if order.get_side() is OrderSide.Buy:
+                for tx in order.get_transactions():
+                    total_balance[base_name] -= tx.get_amount() * tx.get_price()
+                    total_balance[quote_name] += tx.get_amount()
+            elif order.get_side() is OrderSide.Sell:
+                for tx in order.get_transactions():
+                    total_balance[base_name] += tx.get_amount() * tx.get_price()
+                    total_balance[quote_name] -= tx.get_amount()
+            fee = order.get_fee()
+            for asset in fee:
+                total_balance[asset] -= fee[asset]
+
+        for asset in total_balance:
+            assert round(self.total_balance[asset], 8) == round(total_balance[asset], 8)  # this round is ad-hoc
+
+    def process_timestamp(self, timestamp):
+        self.current_timestamp = timestamp
         print('[BackExchange] Current timestamp: {}'.format(self.current_timestamp))
 
         # process viable assets and pairs
@@ -384,13 +415,12 @@ class BackExchange(object):
                 self.__accept_limit_order(order)
 
         # resolve open orders
-        for order_id in self.open_orders.get_all_order_id():
+        for order_id in self.open_orders.get_orders():
             order = self.open_orders.get_order(order_id)
             if self.__execute_limit_order(order):
                 self.open_orders.remove_order(order)
                 self.closed_orders.insert_order(order)
 
+        # check if balance is consistent with order books
         self.balance_consistency_check()
-
-
 

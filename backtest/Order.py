@@ -85,6 +85,7 @@ from backtest.Errors import InvalidOrder, OrderNotFound
 from enum import Enum
 from datetime import datetime
 from collections import OrderedDict
+from sortedcontainers import SortedDict
 
 class OrderSide(Enum):
     Buy = "buy"
@@ -125,6 +126,12 @@ class Transaction(object):
 
     def get_id(self) -> str:
         return self.id
+
+    def get_amount(self) -> float:
+        return self.amount
+
+    def get_price(self) -> float:
+        return self.price
 
     def __repr__(self):
         return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
@@ -205,6 +212,9 @@ class Order(object):
     def get_symbol(self):
         return self.symbol
 
+    def get_fee(self):
+        return self.fee
+
     def get_info(self):
         return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status,
                 'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value, 'price': self.price,
@@ -255,23 +265,15 @@ class Order(object):
             self.fee[asset] += amount
 
 
-class OrderBook(object):
+class OrderBookBase(object):
     def __init__(self):
         self.book = {}
 
-    def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
-        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
-        self.book[new_order.get_id()] = new_order
-        return new_order.get_id()
+    def __iter__(self):
+        return iter(self.book.values())
 
-    def insert_order(self, order: Order):
-        self.book[order.get_id()] = order
-
-    def remove_order(self, order: Order):
-        if order.get_id() in self.book:
-            del self.book[order.get_id()]
-        else:
-            raise OrderNotFound
+    def is_empty(self):
+        return len(self.book) == 0
 
     def get_order(self, order_id: str) -> Order:
         if order_id in self.book:
@@ -279,19 +281,67 @@ class OrderBook(object):
         else:
             raise OrderNotFound
 
-    def is_empty(self):
-        return len(self.book) == 0
 
-    def get_all_order_id(self) -> set:
-        return set(self.book.keys())
-
-    def __iter__(self):
-        return iter(self.book.values())
-
-
-class OrderQueue(OrderBook):
+class OrderQueue(OrderBookBase):
     def __init__(self):
         self.book = OrderedDict()
 
+    def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
+        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
+        self.book[new_order.get_id()] = new_order
+        return new_order.get_id()
+
     def pop_order(self) -> Order:
         return self.book.popitem(last=False)[1]
+
+
+class OrderBook(OrderBookBase):
+    def __init__(self):
+        super(OrderBook, self).__init__()
+        self.time_dict = SortedDict(lambda order_id: self.book[order_id].get_timestamp())
+        self.symbol_dict = {}
+
+    def insert_order(self, order: Order):
+        order_id = order.get_id()
+
+        self.book[order_id] = order
+        self.time_dict[order_id] = order
+        symbol = order.get_symbol()
+        if symbol not in self.symbol_dict:
+            self.symbol_dict[symbol] = SortedDict(lambda order_id: self.book[order_id].get_timestamp())
+            self.symbol_dict[symbol][order_id] = order
+        else:
+            self.symbol_dict[symbol][order_id] = order
+
+    def remove_order(self, order: Order):
+        order_id = order.get_id()
+        if order_id in self.book:
+            del self.time_dict[order_id]
+            del self.symbol_dict[order.get_symbol()][order_id]
+            del self.book[order_id]  # must delete this last. otherwise key lambda can't be executed
+        else:
+            raise OrderNotFound
+
+    def get_orders(self, symbol: str='', limit: int=0, id_only=True) -> list:
+        if symbol == '':
+            if limit <= 0:
+                order_list = list(self.time_dict.keys())
+            else:
+                limit = min(limit, len(self.book))
+                order_list = self.time_dict.iloc[-limit:]
+        elif symbol not in self.symbol_dict:
+            raise OrderNotFound
+        else:
+            if limit <= 0:
+                order_list = list(self.symbol_dict[symbol].keys())
+            else:
+                limit = min(limit, len(self.symbol_dict[symbol]))
+                order_list = self.symbol_dict[symbol].iloc[-limit:]
+
+        if not id_only:
+            orders = []
+            for order in order_list:
+                orders.append(order.get_info())
+            return order
+
+        return order_list
