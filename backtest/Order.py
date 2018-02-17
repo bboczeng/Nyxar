@@ -87,6 +87,7 @@ from datetime import datetime
 from collections import OrderedDict
 from sortedcontainers import SortedDict
 
+
 class OrderSide(Enum):
     Buy = "buy"
     Sell = "sell"
@@ -107,35 +108,55 @@ class OrderStatus(Enum):
 class Transaction(object):
     def __init__(self, *, quote_name: str, base_name: str, price: float, amount: float, side: OrderSide,
                  timestamp: int):
-        self.timestamp = timestamp
-        self.datetime = datetime.fromtimestamp(timestamp / 1000.0)
-        self.side = side
-        self.quote_name = quote_name
-        self.base_name = base_name
-        self.symbol = quote_name + "/" + base_name
-        self.amount = amount
-        self.price = price
-        self.id = self.get_unique_id()
+        self._timestamp = timestamp
+        self._datetime = datetime.fromtimestamp(timestamp / 1000.0)
+        self._side = side
+        self._quote_name = quote_name
+        self._base_name = base_name
+        self._symbol = quote_name + "/" + base_name
+        self._amount = amount
+        self._price = price
+        self._id = self._generate_unique_id()
 
-    def get_unique_id(self) -> str:
+    def _generate_unique_id(self) -> str:
         # should be unique, datetime + name
-        return self.get_datetime().isoformat() + ':' + self.symbol
+        return self.datetime.isoformat() + ':' + self.symbol
 
-    def get_datetime(self) -> datetime:
-        return self.datetime
+    @property
+    def timestamp(self) -> int:
+        return self._timestamp
 
-    def get_id(self) -> str:
-        return self.id
+    @property
+    def datetime(self) -> datetime:
+        return self._datetime
 
-    def get_amount(self) -> float:
-        return self.amount
+    @property
+    def side(self) -> OrderSide:
+        return self._side
 
-    def get_price(self) -> float:
-        return self.price
+    @property
+    def quote_name(self) -> str:
+        return self._quote_name
 
-    def __repr__(self):
-        return 'Timestamp: ' + str(self.timestamp) + ' ' + self.side.value + ' ' + str(self.amount) + ' ' + \
-               self.quote_name + ' at price ' + str(self.price) + ' per ' + self.base_name
+    @property
+    def base_name(self) -> str:
+        return self._base_name
+
+    @property
+    def symbol(self) -> str:
+        return self._symbol
+
+    @property
+    def amount(self) -> float:
+        return self._amount
+
+    @property
+    def price(self) -> float:
+        return self._price
+
+    @property
+    def id(self) -> str:
+        return self._id
 
 
 class Order(object):
@@ -151,82 +172,102 @@ class Order(object):
         if order_type == OrderType.Limit:
             assert price >= 0, "price must be a positive number"
 
-        self.timestamp = timestamp
-        self.datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
-        self.status = OrderStatus.Submitted
-        self.type = order_type
-        self.side = side
-        self.quote_name = quote_name
-        self.base_name = base_name
-        self.symbol = quote_name + "/" + base_name
-        self.amount = amount
-        self.price = price
-        self.filled = 0
-        self.transactions = []
-        self.fee = {}
-        self.id = self.get_unique_id()
+        self._timestamp = timestamp
+        self._datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
+        self._status = OrderStatus.Submitted
+        self._type = order_type
+        self._side = side
+        self._quote_name = quote_name
+        self._base_name = base_name
+        self._symbol = quote_name + "/" + base_name
+        self._amount = amount
+        self._price = price
+        self._filled = 0
+        self._transactions = []
+        self._fee = {}
+        self._id = self._generate_unique_id()
 
-    def get_unique_id(self) -> str:
+    def _generate_unique_id(self) -> str:
         # should be unique, datetime + name
-        return self.get_datetime().isoformat() + ':' + self.symbol
+        return self.datetime.isoformat() + ':' + self.symbol
 
-    def get_datetime(self) -> datetime:
-        return self.datetime
+    @property
+    def timestamp(self) -> int:
+        return self._timestamp
 
-    def get_id(self) -> str:
-        return self.id
+    @property
+    def datetime(self) -> datetime:
+        return self._datetime
 
-    def get_price(self) -> float:
-        return self.price
+    @property
+    def status(self) -> OrderStatus:
+        return self._status
 
-    def get_amount(self) -> float:
-        return self.amount
+    @property
+    def type(self) -> OrderType:
+        return self._type
 
-    def get_remaining(self) -> float:
+    @property
+    def side(self) -> OrderSide:
+        return self._side
+
+    @property
+    def quote_name(self) -> str:
+        return self._quote_name
+
+    @property
+    def base_name(self) -> str:
+        return self._base_name
+
+    @property
+    def symbol(self) -> str:
+        return self._symbol
+
+    @property
+    def amount(self) -> float:
+        return self._amount
+
+    @property
+    def filled(self) -> float:
+        return self._filled
+
+    @property
+    def price(self) -> float:
+        return self._price
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def remaining(self) -> float:
         return self.amount - self.filled
 
-    def get_type(self) -> OrderType:
-        return self.type
+    @property
+    def transactions(self) -> list:
+        return self._transactions
 
-    def get_status(self) -> OrderStatus:
-        return self.status
+    @property
+    def fee(self) -> dict:
+        return self._fee
 
-    def get_timestamp(self) -> int:
-        return self.timestamp
-
-    def get_side(self) -> OrderSide:
-        return self.side
-
-    def get_filled_percentage(self) -> float:
+    @property
+    def filled_percentage(self) -> float:
         return 1.0 * self.filled / self.amount
 
-    def get_transactions(self):
-        return self.transactions
-
-    def get_base_name(self):
-        return self.base_name
-
-    def get_quote_name(self):
-        return self.quote_name
-
-    def get_symbol(self):
-        return self.symbol
-
-    def get_fee(self):
-        return self.fee
-
-    def get_info(self):
+    @property
+    def info(self) -> dict:
         return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status,
                 'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value, 'price': self.price,
-                'amount': self.amount, 'filled': self.filled, 'remaining': self.get_remaining(),
+                'amount': self.amount, 'filled': self.filled, 'remaining': self.remaining,
                 'transaction': self.transactions, 'fee': self.fee}
-
-    def cancel(self):
-        self.status = OrderStatus.Cancelled
 
     def open(self):
         assert self.type is not OrderType.Market
-        self.status = OrderStatus.Open
+        self._status = OrderStatus.Open
+
+    def cancel(self):
+        self._status = OrderStatus.Cancelled
 
     def generate_transaction(self, *, amount: float, price: float, timestamp: int) -> Transaction:
         return Transaction(quote_name=self.quote_name,
@@ -244,25 +285,25 @@ class Order(object):
         assert isinstance(transaction, Transaction), "type must be transaction"
 
         if transaction.side == OrderSide.Buy:
-            self.filled += transaction.amount
+            self._filled += transaction.amount
             self.transactions.append(transaction)
         else:
-            self.filled += transaction.amount
+            self._filled += transaction.amount
             self.transactions.append(transaction)
 
         assert self.amount - self.filled >= 0
 
         if self.amount - self.filled == 0:
-            self.status = OrderStatus.Filled
+            self._status = OrderStatus.Filled
             return True
         else:
             return False
 
     def pay_fee(self, asset: str, amount: float):
         if asset not in self.fee:
-            self.fee[asset] = amount
+            self._fee[asset] = amount
         else:
-            self.fee[asset] += amount
+            self._fee[asset] += amount
 
 
 class OrderBookBase(object):
@@ -272,14 +313,14 @@ class OrderBookBase(object):
     def __iter__(self):
         return iter(self.book.values())
 
-    def is_empty(self):
-        return len(self.book) == 0
-
-    def get_order(self, order_id: str) -> Order:
-        if order_id in self.book:
+    def __getitem__(self, order_id: str) -> Order:
+        try:
             return self.book[order_id]
-        else:
+        except KeyError:
             raise OrderNotFound
+
+    def __len__(self):
+        return len(self.book)
 
 
 class OrderQueue(OrderBookBase):
@@ -288,8 +329,8 @@ class OrderQueue(OrderBookBase):
 
     def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
         new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
-        self.book[new_order.get_id()] = new_order
-        return new_order.get_id()
+        self.book[new_order.id] = new_order
+        return new_order.id
 
     def pop_order(self) -> Order:
         return self.book.popitem(last=False)[1]
@@ -298,26 +339,26 @@ class OrderQueue(OrderBookBase):
 class OrderBook(OrderBookBase):
     def __init__(self):
         super(OrderBook, self).__init__()
-        self.time_dict = SortedDict(lambda order_id: self.book[order_id].get_timestamp())
+        self.time_dict = SortedDict(lambda order_id: self.book[order_id].timestamp)
         self.symbol_dict = {}
 
     def insert_order(self, order: Order):
-        order_id = order.get_id()
+        order_id = order.id
 
         self.book[order_id] = order
         self.time_dict[order_id] = order
-        symbol = order.get_symbol()
+        symbol = order.symbol
         if symbol not in self.symbol_dict:
-            self.symbol_dict[symbol] = SortedDict(lambda order_id: self.book[order_id].get_timestamp())
+            self.symbol_dict[symbol] = SortedDict(lambda order_id: self.book[order_id].timestamp)
             self.symbol_dict[symbol][order_id] = order
         else:
             self.symbol_dict[symbol][order_id] = order
 
     def remove_order(self, order: Order):
-        order_id = order.get_id()
+        order_id = order.id
         if order_id in self.book:
             del self.time_dict[order_id]
-            del self.symbol_dict[order.get_symbol()][order_id]
+            del self.symbol_dict[order.symbol][order_id]
             del self.book[order_id]  # must delete this last. otherwise key lambda can't be executed
         else:
             raise OrderNotFound
@@ -341,7 +382,7 @@ class OrderBook(OrderBookBase):
         if not id_only:
             orders = []
             for order in order_list:
-                orders.append(order.get_info())
+                orders.append(order.info)
             return order
 
         return order_list

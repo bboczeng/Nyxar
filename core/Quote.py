@@ -34,23 +34,35 @@ The base class for quote
 
 class QuoteBase(object):
 
-    def __init__(self, quote_name, base_name):
-        self.quote_name = quote_name
-        self.base_name = base_name
-        self.symbol = quote_name + "/" + base_name
-        self.data = None
+    def __init__(self, quote_name: str, base_name: str):
+        self._quote_name = quote_name
+        self._base_name = base_name
+        self._symbol = quote_name + "/" + base_name
+        self._data = None
+
+    @property
+    def quote_name(self):
+        return self._quote_name
+
+    @property
+    def base_name(self):
+        return self._base_name
+
+    @property
+    def symbol(self):
+        return self._symbol
 
     def read_from_csv(self, file_path):
-        pass
+        raise NotImplementedError
 
     def read_from_url(self, url):
-        pass
+        raise NotImplementedError
 
     def read_from_api(self, api_fun):
-        pass
+        raise NotImplementedError
 
     def get_value(self, timestamp, field):
-        pass
+        raise NotImplementedError
 
     def price_high(self, timestamp):
         return self.get_value(timestamp, QuoteFields.High)
@@ -96,56 +108,58 @@ class QuoteCSV(QuoteBase):
                 break
         pd_data = pd.read_csv(file_path)
         # use timestamp as primary key
-        self.data = pd_data.set_index("timestamp")
-        print("Read " + str(self.data.size) + " lines of price data for quote " + self.symbol)
+        self._data = pd_data.set_index("timestamp")
+        print("Read " + str(self._data.size) + " lines of price data for quote " + self._symbol)
 
     def get_value(self, timestamp, field):
         # field has to be the Asset
         assert isinstance(field, QuoteFields), "invalid field id: " + field
-        if self.data is None:
+        if self._data is None:
             raise ValueError("Asset data is None and it has not been properly initialized.")
         try:
-            return self.data.loc[timestamp, field.value]
+            return self._data.loc[timestamp, field.value]
         except Exception:
             raise KeyError(str(timestamp) + " or " + field.value + " does not exist in Asset's data")
 
 
 class Quotes(object):
     def __init__(self):
-        self.quotes = {}
+        self._quotes = {}
+        
+    def __getitem__(self, name: str):
+        return self.get_quote(name)
 
-    def add_quote(self, quote_name, base_name, mode, extra_info):
-        name = quote_name + '/' + base_name
+    def get_quote(self, name: str):
+        try:
+            return self._quotes[name]
+        except KeyError:
+            raise Exception("Asset not added yet. ")
+
+    def add_quote(self, *, quote_name: str, base_name: str, mode: QuoteReadMode, extra_info):
+        symbol = quote_name + '/' + base_name
         assert isinstance(mode, QuoteReadMode), "mode has to be a valid AssetReadMode"
-        if mode == QuoteReadMode.CSV:
-            if name in self.quotes:
-                print("asset %s has been already added, now overwritten".format(name))
+        if mode is QuoteReadMode.CSV:
+            if symbol in self._quotes:
+                print("asset %s has been already added, now overwritten".format(symbol))
             # extra_info has to be a file path for CSVs
-            self.quotes[name] = QuoteCSV(quote_name, base_name, extra_info)
+            self._quotes[symbol] = QuoteCSV(quote_name, base_name, extra_info)
         else:
-            raise Exception("add asset method: %s not implemented yet".format(mode))
-
-    def get_quote(self, name):
-        if name not in self.quotes:
-            raise Exception("asset %s not added yet".format(name))
-        return self.quotes[name]
+            raise NotImplementedError
 
     def get_symbols(self):
-        return self.quotes.keys()
+        return self._quotes.keys()
 
     def get_assets(self):
         assets = set()
-        for quote in self.quotes:
-            assets.add(self.quotes[quote].quote_name)
-            assets.add(self.quotes[quote].base_name)
+        for quote in self._quotes:
+            assets.add(self._quotes[quote].quote_name)
+            assets.add(self._quotes[quote].base_name)
         return assets
 
 
-def batch_quotes_csv_reader(directory_name):
+def batch_quotes_csv_reader(directory_name: str) -> Quotes:
     """
     generalization
-    :param directory_name:
-    :return:
     """
     quotes = Quotes()
     for file in os.listdir(directory_name):
@@ -153,13 +167,22 @@ def batch_quotes_csv_reader(directory_name):
             flist = file.translate({ord(c): ' ' for c in '-_,.'}).split()
             if len(flist) == 3:
                 # correctly split format
-                quotes.add_quote(flist[0], flist[1], QuoteReadMode.CSV, directory_name + file)
+                quotes.add_quote(quote_name=flist[0],
+                                 base_name=flist[1],
+                                 mode=QuoteReadMode.CSV,
+                                 extra_info=directory_name + file)
             else:
                 # attempt to deduce base currency
                 if flist[0][-3:] in {'ETH', 'BTC', 'BNB'}:
-                    quotes.add_quote(flist[0][:-3], flist[0][-3:], QuoteReadMode.CSV, directory_name + file)
+                    quotes.add_quote(quote_name=flist[0][:-3],
+                                     base_name=flist[0][-3:],
+                                     mode=QuoteReadMode.CSV,
+                                     extra_info=directory_name + file)
                 elif flist[0][-4:] in {'USDT'}:
-                    quotes.add_quote(flist[0][:-4], flist[0][-4:], QuoteReadMode.CSV, directory_name + file)
+                    quotes.add_quote(quote_name=flist[0][:-4],
+                                     base_name=flist[0][-4:],
+                                     mode=QuoteReadMode.CSV,
+                                     extra_info=directory_name + file)
                 else:
                     print("Not able to parse " + file)
 
