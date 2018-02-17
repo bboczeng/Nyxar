@@ -1,6 +1,7 @@
 from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
 
 from core.Quote import Quotes, QuoteFields
+from core.Timer import Timer
 from backtest.Order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue, Transaction
 from backtest.Slippage import slippage_base
 
@@ -10,8 +11,9 @@ from itertools import chain
 
 
 # to do: stop limit / stop loss order
-#        newly listed asset / delisted asset
 #        balance in BTC / ETH / USDT
+#        comprehensive unittest
+#        improved slippage model
 
 class PriceType(Enum):
     Open = QuoteFields.Open
@@ -21,15 +23,17 @@ class PriceType(Enum):
 
 
 class BackExchange(object):
-    def __init__(self, *, quotes: Quotes, buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
+    def __init__(self, *, timer: Timer, quotes: Quotes,
+                 buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
                  fee_rate=0.05, slippage_model=slippage_base, supplement_data=None):
         assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
         assert isinstance(buy_price, PriceType), "buy_price has to be PriceType class"
         assert isinstance(sell_price, PriceType), "sell_price has to be PriceType class"
 
         self._quotes = quotes
-        self._symbols = self._quotes.get_symbols()
-        self._assets = self._quotes.get_assets()
+        self._timer = timer
+
+        self._symbols, self._assets = self.__current_supported()
 
         self._total_balance = {}
         self._available_balance = {}
@@ -42,34 +46,52 @@ class BackExchange(object):
         self._open_orders = OrderBook()
         self._closed_orders = OrderBook()
 
-        self._current_timestamp = 0
-
         self._buy_price = buy_price
         self._sell_price = sell_price
         self._fee_rate = fee_rate
         self._slippage_model = slippage_model
         self._supplement_data = None
 
-    def __frozen_balance(self, asset: str) -> float:
+        self._last_processed_timestamp = -1
+
+    @property
+    def __time(self):
+        return self._timer.time
+
+    def __frozen_balance(self, asset: str):
         return self._total_balance[asset] - self._available_balance[asset]
 
     def __get_price(self, symbol: str, price_type: PriceType) -> float:
-        return self._quotes.get_quote(symbol).get_value(self._current_timestamp, price_type.value)
+        return self._quotes.get_quote(symbol).get_value(self.__time, price_type.value)
 
     def __get_volume(self, symbol: str) -> float:
-        return self._quotes.get_quote(symbol).price_volume(self._current_timestamp)
+        return self._quotes.get_quote(symbol).volume(self.__time)
+
+    def __current_supported(self) -> Tuple[set, set]:
+        supported_symbols, supported_assets = set(), set()
+        for symbol in self._quotes:
+            try:
+                self.__get_volume(symbol)
+                supported_symbols.add(symbol)
+                supported_assets |= {self._quotes.get_quote(symbol).quote_name, self._quotes.get_quote(symbol).base_name}
+            except KeyError:
+                continue
+        return supported_symbols, supported_assets
+
+    def balance_in(self, asset: str):
+        pass
 
     def fetch_timestamp(self) -> int:
         """
         Returns:
              Current time of exchange in millisecond.
         """
-        return self._current_timestamp
+        return self.__time
 
-    def fetch_markets(self) -> Tuple[dict, dict]:
+    def fetch_markets(self) -> Tuple[set, set]:
         """
         Returns:
-             (Supported assets, Supported trading pairs) in dictionary
+             (Currently supported assets, Currently supported trading pairs) in sets
         """
         return self._assets.copy(), self._symbols.copy()
 
@@ -80,10 +102,10 @@ class BackExchange(object):
         """
         if amount <= 0:
             return 0
-        if asset in self._total_balance:
+        if asset in self._assets:
             self._total_balance[asset] += amount
             self._available_balance[asset] += amount
-            self._deposit_history.append({'timestamp': self._current_timestamp, 'asset': asset, 'amount': amount})
+            self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': amount})
             return amount
         else:
             raise NotSupported
@@ -95,12 +117,12 @@ class BackExchange(object):
         """
         if amount <= 0:
             return 0
-        if asset in self._total_balance:
+        if asset in self._assets:
             if self._available_balance[asset] < amount:
                 amount = self._available_balance[asset]
             self._total_balance[asset] -= amount
             self._available_balance[asset] -= amount
-            self._deposit_history.append({'timestamp': self._current_timestamp, 'asset': asset, 'amount': -amount})
+            self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': -amount})
             return -amount
         else:
             raise NotSupported
@@ -111,7 +133,7 @@ class BackExchange(object):
             Dictionary of form: {symbol: {'total': xxx, 'available': xxx, 'in order': xxx}, ...}
         """
         balance = {}
-        for asset in self._total_balance:
+        for asset in self._assets:
             balance[asset] = {'total': self._total_balance[asset],
                               'available': self._available_balance[asset],
                               'in order': self.__frozen_balance(asset)}
@@ -133,11 +155,11 @@ class BackExchange(object):
         """
         if symbol == '':
             quotes = {}
-            for symbol in self._symbols():
+            for symbol in self._symbols:
                 quotes[symbol] = self.fetch_ticker(symbol)
             return quotes
         else:
-            return self._quotes.get_quote(symbol).ohlcv(self._current_timestamp)
+            return self._quotes.get_quote(symbol).ohlcv(self.__time)
 
     def __execute_buy(self, order: Order, price: float, amount: float) -> bool:
         """
@@ -149,7 +171,7 @@ class BackExchange(object):
         """
         assert order.side is OrderSide.Buy
         is_filled = order.execute_transaction(
-            order.generate_transaction(amount=amount, price=price, timestamp=self._current_timestamp))
+            order.generate_transaction(amount=amount, price=price, timestamp=self.__time))
 
         quote_name = order.quote_name
         base_name = order.base_name
@@ -176,7 +198,7 @@ class BackExchange(object):
         """
         assert order.side is OrderSide.Sell
         is_filled = order.execute_transaction(
-            order.generate_transaction(amount=amount, price=price, timestamp=self._current_timestamp))
+            order.generate_transaction(amount=amount, price=price, timestamp=self.__time))
 
         quote_name = order.quote_name
         base_name = order.base_name
@@ -201,13 +223,13 @@ class BackExchange(object):
         assert order.type is OrderType.Market and order.remaining == order.amount
 
         price, amount = self._slippage_model(price=self.__get_price(order.symbol,
-                                                                   self._buy_price if order.side is OrderSide.Buy
-                                                                   else self._sell_price),
-                                            amount=order.remaining,
-                                            side=order.side,
-                                            type=order.type,
-                                            timestamp=self._current_timestamp,
-                                            supplement_data=self._supplement_data)
+                                                                    self._buy_price if order.side is OrderSide.Buy
+                                                                    else self._sell_price),
+                                             amount=order.remaining,
+                                             side=order.side,
+                                             type=order.type,
+                                             timestamp=self.__time,
+                                             supplement_data=self._supplement_data)
 
         if price < 0 or amount != order.remaining:
             raise SlippageModelError
@@ -252,13 +274,13 @@ class BackExchange(object):
 
         is_filled = False
         price, amount = self._slippage_model(price=self.__get_price(order.symbol,
-                                                                   self._buy_price if order.side is OrderSide.Buy
-                                                                   else self._sell_price),
-                                            amount=order.remaining,
-                                            side=order.side,
-                                            type=order.type,
-                                            timestamp=self._current_timestamp,
-                                            supplement_data=self._supplement_data)
+                                                                    self._buy_price if order.side is OrderSide.Buy
+                                                                    else self._sell_price),
+                                             amount=order.remaining,
+                                             side=order.side,
+                                             type=order.type,
+                                             timestamp=self.__time,
+                                             supplement_data=self._supplement_data)
 
         if price < 0 or amount > order.remaining:
             raise SlippageModelError
@@ -307,22 +329,22 @@ class BackExchange(object):
     def create_market_buy_order(self, *, symbol, amount):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
         return self._submitted_orders.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Buy,
-                                                   self._current_timestamp)
+                                                    self.__time)
 
     def create_market_sell_order(self, *, symbol, amount):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
         return self._submitted_orders.add_new_order(names[0], names[1], None, amount, OrderType.Market, OrderSide.Sell,
-                                                   self._current_timestamp)
+                                                    self.__time)
 
     def create_limit_buy_order(self, *, symbol, amount, price):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
         return self._submitted_orders.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Buy,
-                                                   self._current_timestamp)
+                                                    self.__time)
 
     def create_limit_sell_order(self, *, symbol, amount, price):
         names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
         return self._submitted_orders.add_new_order(names[0], names[1], price, amount, OrderType.Limit, OrderSide.Sell,
-                                                   self._current_timestamp)
+                                                    self.__time)
 
     def cancel_submitted_order(self, order_id: str):
         """
@@ -363,10 +385,12 @@ class BackExchange(object):
         return self._closed_orders.get_orders(symbol, limit, id_only=False)
 
     def balance_consistency_check(self):
+        # check asset list
+        assert self._assets == set(self._total_balance.keys()) == set(self._available_balance.keys())
+
         in_order_balance, total_balance = {}, {}
         for asset in self._assets:
             in_order_balance[asset] = 0
-            total_balance[asset] = 0
 
         # check in order balance
         for order in self._open_orders:
@@ -378,11 +402,19 @@ class BackExchange(object):
             assert round(self.__frozen_balance(asset), 8) == round(in_order_balance[asset], 8)  # this round is ad-hoc
 
         # check total balance
+        # note that history transactions may include already delisted assets
         for deposit in self._deposit_history:
+            if deposit['asset'] not in total_balance:
+                total_balance[deposit['asset']] = 0
             total_balance[deposit['asset']] += deposit['amount']
         for order in chain(self._closed_orders, self._open_orders):
             base_name = order.base_name
             quote_name = order.quote_name
+            if base_name not in total_balance:
+                total_balance[base_name] = 0
+            if quote_name not in total_balance:
+                total_balance[quote_name] = 0
+
             if order.side is OrderSide.Buy:
                 for tx in order.transactions:
                     total_balance[base_name] -= tx.amount * tx.price
@@ -396,14 +428,31 @@ class BackExchange(object):
                 total_balance[asset] -= fee[asset]
 
         for asset in total_balance:
+            print(asset, self._total_balance[asset], total_balance[asset])
             assert round(self._total_balance[asset], 8) == round(total_balance[asset], 8)  # this round is ad-hoc
 
-    def process_timestamp(self, timestamp):
-        self._current_timestamp = timestamp
-        print('[BackExchange] Current timestamp: {}'.format(self._current_timestamp))
+    def process(self):
+        print('[BackExchange] Current timestamp: {}'.format(self.__time))
+        if self.__time == self._last_processed_timestamp:
+            raise Exception("Same timestamp shouldn't be processed more than once. ")
 
-        # process viable assets and pairs
-        pass
+        # newly list and delist assets
+        symbols, assets = self.__current_supported()
+        # newly list
+        for asset in assets - self._assets:
+            print('[BackExchange] Newly list: {}'.format(asset))
+            self._total_balance[asset] = 0
+            self._available_balance[asset] = 0
+        # delist
+        for asset in self._assets - assets:
+            print('[BackExchange] Delist: {}'.format(asset))
+            for order_id in self._open_orders.get_orders():
+                order = self._open_orders[order_id]
+                if order.base_name == asset or order.quote_name == asset:
+                    self.cancel_open_order(order_id)
+            assert self.__frozen_balance(asset) == 0
+            self.withdraw(asset, self._total_balance[asset])
+        self._symbols, self._assets = symbols, assets
 
         # resolve orders
         # resolve submitted order
@@ -421,6 +470,9 @@ class BackExchange(object):
                 self._open_orders.remove_order(order)
                 self._closed_orders.insert_order(order)
 
+        self._last_processed_timestamp = self.__time
+
         # check if balance is consistent with order books
         self.balance_consistency_check()
+
 

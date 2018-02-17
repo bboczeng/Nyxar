@@ -129,6 +129,9 @@ class Quotes(object):
     def __getitem__(self, name: str):
         return self.get_quote(name)
 
+    def __iter__(self):
+        return iter(self._quotes)
+
     def get_quote(self, name: str):
         try:
             return self._quotes[name]

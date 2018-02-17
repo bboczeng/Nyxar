@@ -5,3 +5,8 @@ from typing import List, Set, Tuple
 def slippage_base(*, price: float, amount: float, side: OrderSide, type: OrderType, timestamp: int,
                   supplement_data: dict) -> Tuple[float, float]:
     return price, amount
+
+
+def volume_slippage(*, price: float, amount: float, side: OrderSide, type: OrderType, timestamp: int,
+                  supplement_data: dict) -> Tuple[float, float]:
+    pass

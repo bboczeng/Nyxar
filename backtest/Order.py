@@ -314,13 +314,16 @@ class OrderBookBase(object):
         return iter(self.book.values())
 
     def __getitem__(self, order_id: str) -> Order:
+        return self.get_order(order_id)
+
+    def __len__(self):
+        return len(self.book)
+
+    def get_order(self, order_id: str) -> Order:
         try:
             return self.book[order_id]
         except KeyError:
             raise OrderNotFound
-
-    def __len__(self):
-        return len(self.book)
 
 
 class OrderQueue(OrderBookBase):
