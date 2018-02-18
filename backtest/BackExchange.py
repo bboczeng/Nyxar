@@ -9,11 +9,15 @@ from enum import Enum
 from typing import List, Set, Tuple
 from itertools import chain
 
+import networkx as nx
+from networkx.exception import NetworkXNoPath
+import math
 
 # to do: stop limit / stop loss order
-#        balance in BTC / ETH / USDT
 #        comprehensive unittest
 #        improved slippage model
+
+_TOLERANCE = 1e-9
 
 class PriceType(Enum):
     Open = QuoteFields.Open
@@ -78,8 +82,28 @@ class BackExchange(object):
                 continue
         return supported_symbols, supported_assets
 
-    def balance_in(self, asset: str):
-        pass
+    def balance_in(self, target: str):
+        G = nx.DiGraph()
+
+        for symbol in self._symbols:
+            quote_name = self._quotes.get_quote(symbol).quote_name
+            base_name = self._quotes.get_quote(symbol).base_name
+            G.add_edge(quote_name, base_name, weight=-math.log(self.__get_price(symbol, self._sell_price)))
+            G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price)))
+
+        balance = 0
+        for asset in self._total_balance:
+            if self._total_balance[asset]:
+                if asset == target:
+                    balance += self._total_balance[asset]
+                    continue
+                try:
+                    weight = nx.shortest_path_length(G, asset, target, "weight")
+                except NetworkXNoPath:
+                    raise Exception("Not possible to convert all assets to the target asset. ")
+                balance += math.exp(-weight) * self._total_balance[asset]
+
+        return balance
 
     def fetch_timestamp(self) -> int:
         """
@@ -399,7 +423,7 @@ class BackExchange(object):
             elif order.side is OrderSide.Sell:
                 in_order_balance[order.quote_name] += order.remaining
         for asset in in_order_balance:
-            assert round(self.__frozen_balance(asset), 8) == round(in_order_balance[asset], 8)  # this round is ad-hoc
+            assert abs(self.__frozen_balance(asset) - in_order_balance[asset]) < _TOLERANCE
 
         # check total balance
         # note that history transactions may include already delisted assets
@@ -428,8 +452,7 @@ class BackExchange(object):
                 total_balance[asset] -= fee[asset]
 
         for asset in total_balance:
-            print(asset, self._total_balance[asset], total_balance[asset])
-            assert round(self._total_balance[asset], 8) == round(total_balance[asset], 8)  # this round is ad-hoc
+            assert abs(self._total_balance[asset] - total_balance[asset]) < _TOLERANCE
 
     def process(self):
         print('[BackExchange] Current timestamp: {}'.format(self.__time))
