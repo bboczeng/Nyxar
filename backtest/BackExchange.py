@@ -3,7 +3,7 @@ from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, Order
 from core.Quote import Quotes, QuoteFields
 from core.Timer import Timer
 from backtest.Order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue, Transaction
-from backtest.Slippage import slippage_base
+from backtest.Slippage import SlippageBase
 
 from enum import Enum
 from typing import List, Set, Tuple
@@ -13,11 +13,11 @@ import networkx as nx
 from networkx.exception import NetworkXNoPath
 import math
 
-# to do: stop limit / stop loss order
+# to do:
 #        comprehensive unittest
-#        improved slippage model
 
 _TOLERANCE = 1e-9
+
 
 class PriceType(Enum):
     Open = QuoteFields.Open
@@ -29,7 +29,7 @@ class PriceType(Enum):
 class BackExchange(object):
     def __init__(self, *, timer: Timer, quotes: Quotes,
                  buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
-                 fee_rate=0.05, slippage_model=slippage_base, supplement_data=None):
+                 fee_rate: float=0.05, slippage_model: SlippageBase=None):
         assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
         assert isinstance(buy_price, PriceType), "buy_price has to be PriceType class"
         assert isinstance(sell_price, PriceType), "sell_price has to be PriceType class"
@@ -53,8 +53,10 @@ class BackExchange(object):
         self._buy_price = buy_price
         self._sell_price = sell_price
         self._fee_rate = fee_rate
-        self._slippage_model = slippage_model
-        self._supplement_data = None
+        if slippage_model is None:
+            self._slippage_model = SlippageBase()
+        else:
+            self._slippage_model = slippage_model
 
         self._last_processed_timestamp = -1
 
@@ -246,14 +248,14 @@ class BackExchange(object):
         """
         assert order.type is OrderType.Market and order.remaining == order.amount
 
-        price, amount = self._slippage_model(price=self.__get_price(order.symbol,
-                                                                    self._buy_price if order.side is OrderSide.Buy
-                                                                    else self._sell_price),
-                                             amount=order.remaining,
-                                             side=order.side,
-                                             type=order.type,
-                                             timestamp=self.__time,
-                                             supplement_data=self._supplement_data)
+        price, amount = self._slippage_model.generate_tx(price=self.__get_price(order.symbol,
+                                                               self._buy_price if order.side is OrderSide.Buy
+                                                               else self._sell_price),
+                                                         amount=order.remaining,
+                                                         side=order.side,
+                                                         order_type=order.type,
+                                                         ticker=self.fetch_ticker(order.symbol),
+                                                         timestamp=self.__time)
 
         if price < 0 or amount != order.remaining:
             raise SlippageModelError
@@ -298,14 +300,14 @@ class BackExchange(object):
                 (order.type is OrderType.StopLimit) and (order.status is OrderStatus.Open))
 
         is_filled = False
-        price, amount = self._slippage_model(price=self.__get_price(order.symbol,
-                                                                    self._buy_price if order.side is OrderSide.Buy
-                                                                    else self._sell_price),
-                                             amount=order.remaining,
-                                             side=order.side,
-                                             type=order.type,
-                                             timestamp=self.__time,
-                                             supplement_data=self._supplement_data)
+        price, amount = self._slippage_model.generate_tx(price=self.__get_price(order.symbol,
+                                                               self._buy_price if order.side is OrderSide.Buy
+                                                               else self._sell_price),
+                                                         amount=order.remaining,
+                                                         side=order.side,
+                                                         order_type=order.type,
+                                                         ticker=self.fetch_ticker(order.symbol),
+                                                         timestamp=self.__time)
 
         if price < 0 or amount > order.remaining:
             raise SlippageModelError

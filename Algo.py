@@ -17,12 +17,15 @@ class TradingAlgo(object):
         self.last_price = 0
 
     def execute(self):
-        print(self.exchange.fetch_ticker('XRP/ETH'))
         current_price = self.exchange.fetch_ticker('XRP/ETH')['open']
         balance = self.exchange.fetch_balance()
         if current_price < self.last_price:
-            id = self.exchange.create_limit_buy_order(symbol='XRP/ETH', amount=10, price=current_price)
-        elif balance['XRP']['available'] >= 10.0:
-            id = self.exchange.create_limit_sell_order(symbol='XRP/ETH', amount=10, price=current_price)
+            id = self.exchange.create_stop_limit_buy_order(symbol='XRP/ETH', amount=1000, price=1.3 * current_price,
+                                                           stop_price=0.9 * current_price)
+        elif balance['XRP']['available'] >= 1000.0:
+            id = self.exchange.create_stop_limit_sell_order(symbol='XRP/ETH', amount=1000, price=0.3 * current_price,
+                                                            stop_price=0.95 * current_price)
         self.last_price = current_price
         self.display_balance()
+        print("Balance in ETH: {}".format(self.exchange.balance_in('ETH')))
+

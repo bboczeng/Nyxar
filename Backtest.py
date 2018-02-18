@@ -1,6 +1,7 @@
 import core.Quote as q
 from core.Timer import Timer
 from backtest.BackExchange import BackExchange
+from backtest.Slippage import VolumeSlippage
 from Algo import TradingAlgo
 from AlgoMovingAverage import MovingAverageTradingAlgo
 
@@ -12,7 +13,7 @@ one_minute = 60 * 1000
 timer = Timer(1517260800000 + one_minute * 10, 1517266560000, one_minute)
 
 
-ex = BackExchange(timer=timer, quotes=q.batch_quotes_csv_reader(file_path))
+ex = BackExchange(timer=timer, quotes=q.batch_quotes_csv_reader(file_path), slippage_model=VolumeSlippage(0.1))
 ex.deposit('ETH', 1000)
 
 algo = TradingAlgo(ex)

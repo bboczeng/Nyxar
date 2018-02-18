@@ -1,12 +1,20 @@
 from backtest.Order import OrderSide, OrderType, Transaction
-from typing import List, Set, Tuple
 
 
-def slippage_base(*, price: float, amount: float, side: OrderSide, type: OrderType, timestamp: int,
-                  supplement_data: dict) -> Tuple[float, float]:
-    return price, amount
+class SlippageBase(object):
+    def __init__(self):
+        self._supplement_data = {}
+
+    def generate_tx(self, *, price: float, amount: float, side: OrderSide, order_type: OrderType, ticker: dict,
+                    timestamp: int):
+        return price, amount
 
 
-def volume_slippage(*, price: float, amount: float, side: OrderSide, type: OrderType, timestamp: int,
-                  supplement_data: dict) -> Tuple[float, float]:
-    pass
+class VolumeSlippage(SlippageBase):
+    def __init__(self, tradable_rate: float=2.5):
+        super(VolumeSlippage, self).__init__()
+        self._rate = tradable_rate
+
+    def generate_tx(self, *, price: float, amount: float, side: OrderSide, order_type: OrderType, ticker: dict,
+                    timestamp: int):
+        return price, min(amount, ticker['volume'] * self._rate / 100.0)
