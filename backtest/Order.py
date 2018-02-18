@@ -96,10 +96,12 @@ class OrderSide(Enum):
 class OrderType(Enum):
     Limit = "limit"
     Market = "market"
+    StopLimit = "stoplimit"
 
 
 class OrderStatus(Enum):
     Submitted = "submitted"
+    Accepted = "accepted"
     Open = "open"
     Filled = "filled"
     Cancelled = "cancelled"
@@ -160,17 +162,14 @@ class Transaction(object):
 
 
 class Order(object):
-    def __init__(self, quote_name: str, base_name: str, price: float, amount: float, order_type: OrderType,
-                 side: OrderSide, timestamp: int):
-        assert isinstance(order_type, OrderType), "type must be OrderType"
-        assert isinstance(side, OrderSide), "status must be OrderStatus"
-        assert isinstance(quote_name, str), "quote_name must be string"
-        assert isinstance(base_name, str), "base_name must be string"
-        assert isinstance(timestamp, int), "timestamp must be integer"
-        assert isinstance(amount, int), "amount must be integer"
-        assert amount >= 0, "size must be a positive number"
-        if order_type == OrderType.Limit:
-            assert price >= 0, "price must be a positive number"
+    def __init__(self, *, timestamp: int, order_type: OrderType, side: OrderSide, quote_name: str, base_name: str,
+                 amount: float, price: float, stop_price: float):
+        if amount <= 0:
+            raise InvalidOrder
+        if order_type is not OrderType.Market and price <= 0:
+            raise InvalidOrder
+        if order_type is OrderType.StopLimit and stop_price <= 0:
+            raise InvalidOrder
 
         self._timestamp = timestamp
         self._datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
@@ -182,6 +181,7 @@ class Order(object):
         self._symbol = quote_name + "/" + base_name
         self._amount = amount
         self._price = price
+        self._stop_price = stop_price
         self._filled = 0
         self._transactions = []
         self._fee = {}
@@ -232,8 +232,16 @@ class Order(object):
         return self._filled
 
     @property
+    def filled_percentage(self) -> float:
+        return (self._filled / self._amount) * 100.0
+
+    @property
     def price(self) -> float:
         return self._price
+
+    @property
+    def stop_price(self) -> float:
+        return self._stop_price
 
     @property
     def id(self) -> str:
@@ -265,6 +273,10 @@ class Order(object):
     def open(self):
         assert self.type is not OrderType.Market
         self._status = OrderStatus.Open
+
+    def accept(self):
+        assert self.type is OrderType.StopLimit
+        self._status = OrderStatus.Accepted
 
     def cancel(self):
         self._status = OrderStatus.Cancelled
@@ -330,8 +342,9 @@ class OrderQueue(OrderBookBase):
     def __init__(self):
         self.book = OrderedDict()
 
-    def add_new_order(self, quote_name, base_name, price, amount, order_type, side, timestamp):
-        new_order = Order(quote_name, base_name, price, amount, order_type, side, timestamp)
+    def add_new_order(self, *, timestamp, order_type, side, quote_name, base_name, amount, price, stop_price):
+        new_order = Order(timestamp=timestamp, order_type=order_type, side=side, quote_name=quote_name,
+                          base_name=base_name, amount=amount, price=price, stop_price=stop_price)
         self.book[new_order.id] = new_order
         return new_order.id
 
