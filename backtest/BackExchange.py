@@ -9,12 +9,10 @@ from enum import Enum
 from typing import List, Set, Tuple
 from itertools import chain
 
-import networkx as nx
 from networkx.exception import NetworkXNoPath
+import networkx as nx
 import math
 
-# to do:
-#        comprehensive unittest
 
 _TOLERANCE = 1e-9
 
@@ -29,7 +27,7 @@ class PriceType(Enum):
 class BackExchange(object):
     def __init__(self, *, timer: Timer, quotes: Quotes,
                  buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
-                 fee_rate: float=0.05, slippage_model: SlippageBase=None):
+                 fee_rate: float=0.05, slippage_model: SlippageBase=SlippageBase()):
         assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
         assert isinstance(buy_price, PriceType), "buy_price has to be PriceType class"
         assert isinstance(sell_price, PriceType), "sell_price has to be PriceType class"
@@ -53,10 +51,7 @@ class BackExchange(object):
         self._buy_price = buy_price
         self._sell_price = sell_price
         self._fee_rate = fee_rate
-        if slippage_model is None:
-            self._slippage_model = SlippageBase()
-        else:
-            self._slippage_model = slippage_model
+        self._slippage_model = slippage_model
 
         self._last_processed_timestamp = -1
 
@@ -152,6 +147,13 @@ class BackExchange(object):
             return -amount
         else:
             raise NotSupported
+
+    def fetch_deposit_history(self) -> list:
+        """
+        Returns:
+             List of form: [{'timestamp': xxx, 'asset': xxx, 'amount':+/-xxx}, ...]
+        """
+        return self._deposit_history.copy()
 
     def fetch_balance(self) -> dict:
         """
@@ -512,7 +514,10 @@ class BackExchange(object):
                     self.cancel_open_order(order_id)
             assert self.__frozen_balance(asset) == 0
             self.withdraw(asset, self._total_balance[asset])
+            del self._total_balance[asset]
+            del self._available_balance[asset]
         self._symbols, self._assets = symbols, assets
+
 
         # resolve orders
         # resolve submitted order
