@@ -17,7 +17,7 @@ class QuoteFields(Enum):
     High = "high"
     Low = "low"
     Open = "open"
-    Close = "closing" # needs to be fixed
+    Close = "close"
     Volume = "volume"
 
 
@@ -33,7 +33,6 @@ The base class for quote
 
 
 class QuoteBase(object):
-
     def __init__(self, quote_name: str, base_name: str):
         self._quote_name = quote_name
         self._base_name = base_name

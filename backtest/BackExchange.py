@@ -186,6 +186,8 @@ class BackExchange(object):
             for symbol in self._symbols:
                 quotes[symbol] = self.fetch_ticker(symbol)
             return quotes
+        elif symbol not in self._symbols:
+            raise NotSupported
         else:
             return self._quotes.get_quote(symbol).ohlcv(self.__time)
 

@@ -1,8 +1,11 @@
 import unittest
 
+#from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
 from backtest.BackExchange import BackExchange
 from core.Quote import batch_quotes_csv_reader
 from core.Timer import Timer
+
+import backtest.Errors
 
 
 class BackExchangeTest(unittest.TestCase):
@@ -35,23 +38,11 @@ class BackExchangeTest(unittest.TestCase):
         self.assertSetEqual(assets, {'ETH', 'BTC', 'USDT', 'XRP'})
         self.assertSetEqual(symbols, {'XRP/ETH', 'ETH/USDT', 'ETH/BTC'})
 
-    def test_list_and_delist(self):
-        # newly list
-        self.forward_to_timestamp(1517601360000)
-        self.assertEqual(self.ex.fetch_timestamp(), 1517601360000)
-        assets, symbols = self.ex.fetch_markets()
-        self.assertSetEqual(assets, {'ETH', 'BTC', 'USDT', 'XRP', 'NANO'})
-        self.assertSetEqual(symbols, {'XRP/ETH', 'ETH/USDT', 'ETH/BTC', 'NANO/BTC', 'NANO/ETH'})
-
-        # delist
-        self.forward_to_timestamp(1517603700000)
-        self.assertEqual(self.ex.fetch_timestamp(), 1517603700000)
-        assets, symbols = self.ex.fetch_markets()
-        self.assertSetEqual(assets, {'ETH', 'BTC', 'USDT', 'XRP'})
-        self.assertSetEqual(symbols, {'XRP/ETH', 'ETH/USDT', 'ETH/BTC'})
-
-        # need to add:
-        # order, balance
+        # fetch_ticker
+        self.assertRaises(backtest.Errors.NotSupported, self.ex.fetch_ticker, 'XXX')
+        self.assertDictEqual(self.ex.fetch_ticker('XRP/ETH'),
+                             {'open': 0.00095494, 'high': 0.00095751,
+                              'low': 0.00095293, 'close': 0.00095518, 'volume': 13013.0})
 
     def test_deposit_and_withdraw(self):
         # deposit
@@ -78,6 +69,24 @@ class BackExchangeTest(unittest.TestCase):
         history.append({'timestamp': 1517599620000, 'asset': 'BTC', 'amount': 5})
         history.append({'timestamp': 1517599620000, 'asset': 'ETH','amount': -3})
         self.assertListEqual(self.ex.fetch_deposit_history(), history)
+
+    def test_list_and_delist(self):
+        # newly list
+        self.forward_to_timestamp(1517601360000)
+        self.assertEqual(self.ex.fetch_timestamp(), 1517601360000)
+        assets, symbols = self.ex.fetch_markets()
+        self.assertSetEqual(assets, {'ETH', 'BTC', 'USDT', 'XRP', 'NANO'})
+        self.assertSetEqual(symbols, {'XRP/ETH', 'ETH/USDT', 'ETH/BTC', 'NANO/BTC', 'NANO/ETH'})
+
+        # delist
+        self.forward_to_timestamp(1517603700000)
+        self.assertEqual(self.ex.fetch_timestamp(), 1517603700000)
+        assets, symbols = self.ex.fetch_markets()
+        self.assertSetEqual(assets, {'ETH', 'BTC', 'USDT', 'XRP'})
+        self.assertSetEqual(symbols, {'XRP/ETH', 'ETH/USDT', 'ETH/BTC'})
+
+        # need to add:
+        # order, balance
 
 
 if __name__ == '__main__':
