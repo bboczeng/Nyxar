@@ -84,3 +84,29 @@ class SMA(OperatorsBase):
             self.sma += (current_price - self.price_queue.popleft()) / self.window_size
         self.last_timestamp = self.exchange.current_timestamp
         return self.sma
+
+
+"""
+MACD is an indicator of indicators (EMA)
+"""
+class MACD(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str, field: QuoteFields):
+        super(SMA, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.ema_26 = EMA(exchange, ticker_name, 26, field)
+        self.ema_12 = EMA(exchange, ticker_name, 12, field)
+        self.macd = None
+        self.operator_name = "SMA" + " of " + ticker_name
+
+    def get(self):
+        ema_12 = self.ema_12.get()
+        ema_26 = self.ema_26.get()
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.macd
+        if ema_12 is None or ema_26 is None:
+            return None
+        else:
+            self.macd = ema_12 - ema_26
+            return self.macd
