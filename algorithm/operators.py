@@ -17,6 +17,7 @@ from backtest.BackExchange import BackExchange
 from core.Quote import QuoteFields
 
 from collections import deque
+import math
 
 
 class OperatorsBase(object):
@@ -43,7 +44,7 @@ class OperatorsBase(object):
 
 class EMA(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
-        super(SMA, self).__init__(exchange)
+        super(EMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
         self.price_queue = deque(maxlen=window_size+1)
@@ -102,6 +103,9 @@ class SMA(OperatorsBase):
         self.last_timestamp = self.exchange.current_timestamp
         return self.sma
 
+    def get_feed_extern(self, value):
+        return self.__get_feed(value)
+
 
 
 """
@@ -109,7 +113,7 @@ MACD is an indicator of indicators (EMA)
 """
 class MACD(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str, field: QuoteFields):
-        super(SMA, self).__init__(exchange)
+        super(MACD, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.ema_26 = EMA(exchange, ticker_name, 26, field)
         self.ema_12 = EMA(exchange, ticker_name, 12, field)
@@ -139,7 +143,7 @@ used to check if %K crossed %D
 """
 class StochasticOscillator(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str):
-        super(SMA, self).__init__(exchange)
+        super(StochasticOscillator, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.low_14 = None
         self.high_14 = None
@@ -180,7 +184,7 @@ This indicator is used to facilitate standard RSI calculations.
 """
 class SMMA(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
-        super(SMA, self).__init__(exchange)
+        super(SMMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
         self.field = field
@@ -217,7 +221,7 @@ it is also an indicator of indicators
 """
 class RSI(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int = 14):
-        super(SMA, self).__init__(exchange)
+        super(RSI, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
         self.smma_up = SMMA(BackExchange, ticker_name, window_size, QuoteFields.Close)
@@ -235,12 +239,76 @@ class RSI(OperatorsBase):
             print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
             print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
             return self.rsi
+        self.last_timestamp = self.exchange.current_timestamp
         if self.close_prev is None:
             return self.rsi
         up_price = max(0, value - self.close_prev)
         down_price = max(0, self.close_prev - value)
         smma_u = self.smma_up.get_feed_extern(up_price)
         smma_d = self.smma_down.get_feed_extern(down_price)
+        if smma_u is None or smma_d is None:
+            return self.rsi
         self.rsi = 100 - 100 / (1 + smma_u / smma_d)
-        self.last_timestamp = self.exchange.current_timestamp
         return self.rsi
+
+
+"""
+Commodity Channel Index
+it returns the CCI index calculated with SMA and typical prices
+see https://en.wikipedia.org/wiki/Commodity_channel_index
+it is also an indicator of indicators
+It uses standard deviation.
+"""
+class CCI(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int = 20):
+        super(CCI, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.window_size = window_size
+        # store price as a list
+        self.price_queue = deque(maxlen=window_size + 1)
+        # store price^2 as a list
+        self.price_queue_sq = deque(maxlen=window_size + 1)
+        self.sum_price = None
+        self.sum_price_sq = None
+        self.sma = SMA(BackExchange, ticker_name, window_size, QuoteFields.Close)
+        self.cci = None
+        self.operator_name = "CCI(" + self.window_size + ")" + " of " + ticker_name
+
+    def get(self):
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        current_high = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.High]
+        current_low = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Low]
+        typical_price = (current_close + current_high + current_low) / 3
+
+        return self.__get_feed(typical_price)
+
+    def __get_feed(self, value):
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.cci
+        self.last_timestamp = self.exchange.current_timestamp
+        sma = self.sma.get_feed_extern(value)
+        if sma is None:
+            return self.cci
+
+        if len(self.price_queue) != len(self.price_queue_sq):
+            print("internal error for CCI calculation, price_queue and price_queue_sq should have the same length.")
+            return self.cci
+
+        self.price_queue.append(value)
+        self.price_queue_sq.append(value ** 2)
+
+        if len(self.price_queue) < self.window_size:
+            return self.cci
+        elif len(self.price_queue) == self.window_size:
+            self.sum_price = sum(self.price_queue)
+            self.sum_price_sq = sum(self.price_queue_sq)
+        else:
+            self.sum_price  += (value - self.price_queue.popleft())
+            self.sum_price_sq += (value ** 2 - self.price_queue_sq.popleft())
+
+
+        deviation = math.sqrt(self.sum_price_sq - (self.sum_price) ** 2)
+        self.cci = (value - sma) / (0.015 * deviation)
+        return self.cci
