@@ -308,7 +308,50 @@ class CCI(OperatorsBase):
             self.sum_price  += (value - self.price_queue.popleft())
             self.sum_price_sq += (value ** 2 - self.price_queue_sq.popleft())
 
-
         deviation = math.sqrt(self.sum_price_sq - (self.sum_price) ** 2)
         self.cci = (value - sma) / (0.015 * deviation)
         return self.cci
+
+
+"""
+Average True Range
+it returns the ATR indicator
+see https://en.wikipedia.org/wiki/Average_true_range
+"""
+class ATR(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int = 14):
+        super(ATR, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.window_size = window_size
+        self.previous_close = None
+        # store price as a list
+        self.tr_queue = deque(maxlen=window_size + 1)
+        self.atr = None
+        self.operator_name = "ATR(" + self.window_size + ")" + " of " + ticker_name
+
+    def get(self):
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        if self.previous_close is None:
+            self.previous_close = current_close
+            return None
+        current_high = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.High]
+        current_low = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Low]
+        true_range = max(math.abs(current_high - current_low),
+                         math.abs(current_high - self.previous_close),
+                         math.abs(self.previous_close - current_low))
+        return self.__get_feed(true_range)
+
+    def __get_feed(self, value):
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.atr
+        self.last_timestamp = self.exchange.current_timestamp
+        self.tr_queue.append(value)
+        if len(self.tr_queue) < self.window_size:
+            return self.atr
+        elif len(self.tr_queue) == self.window_size:
+            self.atr = sum(self.tr_queue) / self.window_size
+        else:
+            self.atr = (self.atr * (self.window_size - 1) + value) / self.window_size
+        return self.atr
