@@ -41,7 +41,9 @@ class OperatorsBase(object):
         pass
 
 
-
+"""
+Exponential moving average
+"""
 class EMA(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
         super(EMA, self).__init__(exchange)
@@ -73,7 +75,9 @@ class EMA(OperatorsBase):
         return self.ema
 
 
-
+"""
+Simple moving average
+"""
 class SMA(OperatorsBase):
     def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
         super(SMA, self).__init__(exchange)
@@ -106,6 +110,89 @@ class SMA(OperatorsBase):
     def get_feed_extern(self, value):
         return self.__get_feed(value)
 
+
+"""
+SMMA, the smoothed moving average
+This indicator is used to facilitate standard RSI calculations.
+"""
+class SMMA(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
+        super(SMMA, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.window_size = window_size
+        self.field = field
+        self.smma = None
+        self.operator_name = "SMMA(" + str(window_size) + ")" + " of " + ticker_name
+
+    def get(self):
+        current_price = self.exchange.fetch_ticker(self.ticker_name)[self.field]
+        return self.__get_feed(current_price)
+
+    def __get_feed(self, value):
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.smma
+        if self.smma is None:
+            self.smma = value
+        else:
+            self.smma = (self.smma*(self.window_size - 1) + value) / self.window_size
+        self.last_timestamp = self.exchange.current_timestamp
+        return self.smma
+
+    """
+    expose __get_feed to external use by choice
+    """
+    def get_feed_extern(self, value):
+        return self.__get_feed(value)
+
+"""
+Standard Deviation indicator
+this class calculates the standard deviation
+of a commodity
+"""
+class Sigma(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
+        super(Sigma, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.window_size = window_size
+        self.price_queue = deque(maxlen=window_size+1)
+        self.price_queue_sq = deque(maxlen=window_size + 1)
+        self.price_sum = None
+        self.price_sum_sq = None
+        self.field = field
+        self.sigma = None
+        self.operator_name = "Sigma(" + str(window_size) + ")" + " of " + ticker_name
+
+    def get(self):
+        current_price = self.exchange.fetch_ticker(self.ticker_name)[self.field]
+        return self.__get_feed(current_price)
+
+    def __get_feed(self, value):
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.sigma
+        self.last_timestamp = self.exchange.current_timestamp
+        self.price_queue.append(value)
+        self.price_queue_sq.append(value**2)
+        if len(self.price_queue) != len(self.price_queue_sq):
+            print("internal error: price_queue and price_queue_sq must have the same length")
+            return self.sigma
+        if len(self.price_queue) < self.window_size:
+            return self.sigma
+        elif len(self.price_queue) == self.window_size:
+            self.price_sum = sum(self.price_queue)
+            self.price_sum_sq = sum(self.price_queue_sq)
+        else:
+            self.price_sum += (value - self.price_queue.popleft())
+            self.price_sum_sq += (value**2 - self.price_queue_sq.popleft())
+
+        self.sigma = math.sqrt((price_sum_sq - price_sum ** 2) / (self.window_size - 1))
+        return self.sigma
+
+    def get_feed_extern(self, value):
+        return self.__get_feed(value)
 
 
 """
@@ -179,42 +266,6 @@ class StochasticOscillator(OperatorsBase):
 
 
 """
-SMMA, the smoothed moving average
-This indicator is used to facilitate standard RSI calculations.
-"""
-class SMMA(OperatorsBase):
-    def __init__(self, exchange: BackExchange, ticker_name: str, window_size : int, field: QuoteFields):
-        super(SMMA, self).__init__(exchange)
-        self.ticker_name = ticker_name
-        self.window_size = window_size
-        self.field = field
-        self.smma = None
-        self.operator_name = "SMMA(" + str(window_size) + ")" + " of " + ticker_name
-
-    def get(self):
-        current_price = self.exchange.fetch_ticker(self.ticker_name)[self.field]
-        return self.__get_feed(current_price)
-
-    def __get_feed(self, value):
-        if self.last_timestamp == self.exchange.current_timestamp:
-            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
-            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
-            return self.smma
-        if self.smma is None:
-            self.smma = value
-        else:
-            self.smma = (self.smma*(self.window_size - 1) + value) / self.window_size
-        self.last_timestamp = self.exchange.current_timestamp
-        return self.smma
-
-    """
-    expose __get_feed to external use by choice
-    """
-    def get_feed_extern(self, value):
-        return self.__get_feed(value)
-
-
-"""
 RSI Index
 it returns the RSI index calculated with smoothed SMA for ups and downs.
 it is also an indicator of indicators
@@ -265,11 +316,7 @@ class CCI(OperatorsBase):
         self.ticker_name = ticker_name
         self.window_size = window_size
         # store price as a list
-        self.price_queue = deque(maxlen=window_size + 1)
-        # store price^2 as a list
-        self.price_queue_sq = deque(maxlen=window_size + 1)
-        self.sum_price = None
-        self.sum_price_sq = None
+        self.sigma = Sigma(BackExchange, ticker_name, window_size, QuoteFields.Close)
         self.sma = SMA(BackExchange, ticker_name, window_size, QuoteFields.Close)
         self.cci = None
         self.operator_name = "CCI(" + self.window_size + ")" + " of " + ticker_name
@@ -279,7 +326,6 @@ class CCI(OperatorsBase):
         current_high = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.High]
         current_low = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Low]
         typical_price = (current_close + current_high + current_low) / 3
-
         return self.__get_feed(typical_price)
 
     def __get_feed(self, value):
@@ -289,27 +335,10 @@ class CCI(OperatorsBase):
             return self.cci
         self.last_timestamp = self.exchange.current_timestamp
         sma = self.sma.get_feed_extern(value)
-        if sma is None:
+        sigma = self.sigma.get_feed_extern(value)
+        if sma is None or sigma is None:
             return self.cci
-
-        if len(self.price_queue) != len(self.price_queue_sq):
-            print("internal error for CCI calculation, price_queue and price_queue_sq should have the same length.")
-            return self.cci
-
-        self.price_queue.append(value)
-        self.price_queue_sq.append(value ** 2)
-
-        if len(self.price_queue) < self.window_size:
-            return self.cci
-        elif len(self.price_queue) == self.window_size:
-            self.sum_price = sum(self.price_queue)
-            self.sum_price_sq = sum(self.price_queue_sq)
-        else:
-            self.sum_price  += (value - self.price_queue.popleft())
-            self.sum_price_sq += (value ** 2 - self.price_queue_sq.popleft())
-
-        deviation = math.sqrt(self.sum_price_sq - (self.sum_price) ** 2)
-        self.cci = (value - sma) / (0.015 * deviation)
+        self.cci = (value - sma) / (0.015 * sigma)
         return self.cci
 
 
@@ -355,3 +384,41 @@ class ATR(OperatorsBase):
         else:
             self.atr = (self.atr * (self.window_size - 1) + value) / self.window_size
         return self.atr
+
+
+"""
+Bollinger Bands
+it returns the BB indicator calculated with SMA and standard deviations
+see https://en.wikipedia.org/wiki/Bollinger_Bands
+It is also an indicator of indicators
+It returns a triplet of (middle_band, upper_band, lower_band)
+"""
+class BollingerBands(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int = 20):
+        super(BollingerBands, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.window_size = window_size
+        # store price as a list
+        self.sigma = Sigma(BackExchange, ticker_name, window_size, QuoteFields.Close)
+        self.sma = SMA(BackExchange, ticker_name, window_size, QuoteFields.Close)
+        self.upper_band = None
+        self.lower_band = None
+        self.middle_band = None
+        self.operator_name = "BollingerBands(" + self.window_size + ")" + " of " + ticker_name
+
+    def get(self):
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        return self.__get_feed(current_close)
+
+    def __get_feed(self, value):
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.cci
+        self.last_timestamp = self.exchange.current_timestamp
+        sma = self.sma.get_feed_extern(value)
+        sigma = self.sigma.get_feed_extern(value)
+        if sma is None or sigma is None:
+            return self.cci
+        self.middle_band, self.upper_band, self.lower_band = sma, sma + 2 * sigma, sma - 2 * sigma
+        return self.middle_band, self.upper_band, self.lower_band
