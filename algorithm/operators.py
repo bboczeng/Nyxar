@@ -35,7 +35,7 @@ class EMA(OperatorsBase):
         super(SMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
-        self.price_queue = deque(maxlen=window_size)
+        self.price_queue = deque(maxlen=window_size+1)
         self.field = field
         self.ema = None
         self.multiplier = 2 / (1 + window_size)
@@ -64,7 +64,7 @@ class SMA(OperatorsBase):
         super(SMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
-        self.price_queue = deque(maxlen=window_size)
+        self.price_queue = deque(maxlen=window_size+1)
         self.field = field
         self.sma = None
         self.operator_name = "SMA(" + str(window_size) + ")" + " of " + ticker_name
@@ -99,14 +99,50 @@ class MACD(OperatorsBase):
         self.operator_name = "SMA" + " of " + ticker_name
 
     def get(self):
-        ema_12 = self.ema_12.get()
-        ema_26 = self.ema_26.get()
         if self.last_timestamp == self.exchange.current_timestamp:
             print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
             print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
             return self.macd
+        ema_12 = self.ema_12.get()
+        ema_26 = self.ema_26.get()
         if ema_12 is None or ema_26 is None:
             return None
         else:
             self.macd = ema_12 - ema_26
             return self.macd
+
+
+"""
+Stochastic Oscillator
+it returns both %K and %D, while oscillator is commonly
+used to check if %K crossed %D
+"""
+class StochasticOscillator(OperatorsBase):
+    def __init__(self, exchange: BackExchange, ticker_name: str):
+        super(SMA, self).__init__(exchange)
+        self.ticker_name = ticker_name
+        self.low_14 = None
+        self.high_14 = None
+        self.price_queue = deque(maxlen=14)
+        self.stochastic_oscillator = None
+        self.past_oscillator = deque(maxlen=3)
+        self.operator_name = "StochasticOscillator" + " of " + ticker_name
+
+    def get(self):
+        if self.last_timestamp == self.exchange.current_timestamp:
+            print("You attempt to calculate {} twice at ts={}".format(self.operator_name, self.last_timestamp))
+            print("Please save it to a local variable and reuse it elsewhere, now using calculated value.")
+            return self.stochastic_oscillator
+
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        if len(price_queue) < 14:
+            self.price_queue.append(current_close)
+            return None
+        self.low_14 = min(price_queue)
+        self.high_14 = max(price_queue)
+        self.price_queue.append(current_close)
+        self.stochastic_oscillator = round((current_close - self.low_14) / (self.high_14 - self.low_14) * 100, 2)
+        self.past_oscillator.append(self.stochastic_oscillator)
+        if len(self.past_oscillator) < 3:
+            return self.stochastic_oscillator, None
+        return self.stochastic_oscillator, round(sum(self.past_oscillator) / 3, 2)
