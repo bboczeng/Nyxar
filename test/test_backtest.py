@@ -24,12 +24,12 @@ class BackExchangeTest(unittest.TestCase):
     def forward_to_timestamp(self, timestamp):
         while self.timer.time < timestamp:
             self.timer.next()
-        self.ex.process()
+            self.ex.process()
 
     def next_tickers(self, n: int):
         for i in range(n):
             self.timer.next()
-        self.ex.process()
+            self.ex.process()
 
     def test_market_info(self):
         # fetch_timestamp
@@ -100,10 +100,9 @@ class BackExchangeTest(unittest.TestCase):
         self.assertEqual(orders[1]['id'], order_info2['id'])
 
         # InsufficientFunds
-        self.assertRaises(InsufficientFunds, self.ex.process)
+        self.assertRaises(InsufficientFunds, self.next_tickers, 1)
 
         # InvalidOrder
-        self.next_tickers(1)
         self.assertRaises(InvalidOrder, self.ex.create_market_buy_order, symbol='XXX', amount=10)
         self.assertRaises(InvalidOrder, self.ex.create_market_buy_order, symbol='XRP/ETH', amount=-10)
         self.assertRaises(InvalidOrder, self.ex.create_market_buy_order, symbol='XRP/ETH', amount=0)
@@ -125,8 +124,9 @@ class BackExchangeTest(unittest.TestCase):
         self.assertEqual(len(closed_order[0]['transaction']), 1)
         self.assertDictContainsSubset({'timestamp': 1517599680000, 'price': 0.00095605, 'amount': 100},
                                       closed_order[0]['transaction'][0])
-        self.assertDictEqual(self.ex.fetch_balance()['ETH'], {'free': 99.904395, 'used': 0, 'total': 99.904395})
-        self.assertDictEqual(self.ex.fetch_balance()['XRP'], {'free': 99.95, 'used': 0, 'total': 99.95})
+        balance = self.ex.fetch_balance()
+        self.assertDictEqual(balance['ETH'], {'free': 99.904395, 'used': 0, 'total': 99.904395})
+        self.assertDictEqual(balance['XRP'], {'free': 99.95, 'used': 0, 'total': 99.95})
 
         self.next_tickers(5)
 
@@ -143,10 +143,111 @@ class BackExchangeTest(unittest.TestCase):
         self.assertEqual(len(closed_order[1]['transaction']), 1)
         self.assertDictContainsSubset({'timestamp': 1517600040000, 'price': 0.0009709, 'amount': 80},
                                       closed_order[1]['transaction'][0])
-        self.assertDictEqual(self.ex.fetch_balance()['ETH'], {'free': 99.98202816, 'used': 0, 'total': 99.98202816})
-        self.assertDictEqual(self.ex.fetch_balance()['XRP'], {'free': 19.95, 'used': 0, 'total': 19.95})
+        balance = self.ex.fetch_balance()
+        self.assertDictEqual(balance['ETH'], {'free': 99.98202816, 'used': 0, 'total': 99.98202816})
+        self.assertDictEqual(balance['XRP'], {'free': 19.95, 'used': 0, 'total': 19.95})
 
-    def test_list_and_delist(self):
+    def test_limit_order(self):
+        self.ex.deposit('ETH', 100)
+        # create_limit_buy_order
+        order_info1 = self.ex.create_limit_buy_order(symbol='XRP/ETH', amount=100, price=0.000954)
+        self.assertDictContainsSubset({'timestamp': 1517599560000, 'status': 'submitted', 'symbol': 'XRP/ETH',
+                                       'type': 'limit', 'side': 'buy', 'price': 0.000954, 'amount': 100, 'filled': 0,
+                                       'remaining': 100, 'transaction': [], 'fee': {}},
+                                      order_info1)
+
+        # fetch_submitted_order
+        self.assertDictEqual(self.ex.fetch_submitted_order(order_info1['id']), order_info1)
+
+        self.next_tickers(1)
+        # fetch_open_orders
+        open_orders = self.ex.fetch_open_orders()
+        self.assertEqual(len(open_orders), 1)
+        self.assertEqual(open_orders[0]['status'], 'open')
+
+        # create_market_sell_order
+        order_info2 = self.ex.create_limit_sell_order(symbol='ETH/USDT', amount=10, price=886.0)
+        self.assertDictContainsSubset({'timestamp': 1517599620000, 'status': 'submitted', 'symbol': 'ETH/USDT',
+                                       'type': 'limit', 'side': 'sell', 'price': 886.0, 'amount': 10, 'filled': 0,
+                                       'remaining': 10, 'transaction': [], 'fee': {}},
+                                      order_info2)
+
+        # fetch_submitted_orders
+        orders = self.ex.fetch_submitted_orders()
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]['id'], order_info2['id'])
+
+        # InvalidOrder
+        self.next_tickers(1)
+        self.assertRaises(InvalidOrder, self.ex.create_limit_buy_order, symbol='XXX', amount=10, price=5)
+        self.assertRaises(InvalidOrder, self.ex.create_limit_buy_order, symbol='XRP/ETH', amount=-10, price=5)
+        self.assertRaises(InvalidOrder, self.ex.create_limit_buy_order, symbol='XRP/ETH', amount=0, price=5)
+        self.assertRaises(InvalidOrder, self.ex.create_limit_buy_order, symbol='XRP/ETH', amount=10, price=-5)
+        self.assertRaises(InvalidOrder, self.ex.create_limit_buy_order, symbol='XRP/ETH', amount=10, price=0)
+
+        # fetch_open_orders
+        orders = self.ex.fetch_open_orders()
+        self.assertEqual(len(orders), 2)
+        self.assertEqual(orders[0]['id'], order_info1['id'])
+        self.assertEqual(orders[1]['id'], order_info2['id'])
+
+        # in order balance
+        balance = self.ex.fetch_balance()
+        self.assertDictEqual(balance['ETH'], {'free': 89.9046, 'used': 10.0954, 'total': 100})
+        self.assertDictEqual(balance['XRP'], {'free': 0, 'used': 0, 'total': 0})
+        self.assertDictEqual(balance['USDT'], {'free': 0, 'used': 0, 'total': 0})
+
+        # InsufficientFunds
+        self.next_tickers(1)
+        self.ex.create_limit_buy_order(symbol='ETH/BTC', amount=10, price=10)
+        self.assertRaises(InsufficientFunds, self.next_tickers, 1)
+        orders = self.ex.fetch_open_orders()
+        self.assertEqual(len(orders), 2)
+
+        # execution of limit sell order
+        self.forward_to_timestamp(1517599920000)
+
+        orders = self.ex.fetch_open_orders()
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]['id'], order_info1['id'])
+
+        closed_order = self.ex.fetch_closed_orders(symbol='ETH/USDT')
+        self.assertEqual(len(closed_order), 1)
+        self.assertDictContainsSubset({'timestamp': 1517599620000, 'id': order_info2['id'], 'status': 'filled',
+                                       'symbol': 'ETH/USDT', 'type': 'limit', 'side': 'sell', 'price': 886.0,
+                                       'amount': 10, 'filled': 10, 'remaining': 0, 'fee': {'USDT': 4.43}},
+                                      closed_order[0])
+        self.assertEqual(len(closed_order[0]['transaction']), 1)
+        self.assertDictContainsSubset({'timestamp': 1517599860000, 'price': 886.0, 'amount': 10},
+                                      closed_order[0]['transaction'][0])
+
+        balance = self.ex.fetch_balance()
+        self.assertDictEqual(balance['ETH'], {'free': 89.9046, 'used': 0.0954, 'total': 90})
+        self.assertDictEqual(balance['XRP'], {'free': 0, 'used': 0, 'total': 0})
+        self.assertDictEqual(balance['USDT'], {'free': 8855.57, 'used': 0, 'total': 8855.57})
+
+        # execution of limit buy order
+        self.forward_to_timestamp(1517604300000)
+
+        self.assertEqual(len(self.ex.fetch_open_orders()), 0)
+
+        closed_order = self.ex.fetch_closed_orders(symbol='XRP/ETH')
+        self.assertEqual(len(closed_order), 1)
+        self.assertDictContainsSubset({'timestamp': 1517599560000, 'id': order_info1['id'], 'status': 'filled',
+                                       'symbol': 'XRP/ETH', 'type': 'limit', 'side': 'buy', 'price': 0.000954,
+                                       'amount': 100, 'filled': 100, 'remaining': 0, 'fee': {'XRP': 0.05}},
+                                      closed_order[0])
+        self.assertEqual(len(closed_order[0]['transaction']), 1)
+        self.assertDictContainsSubset({'timestamp': 1517604240000, 'price': 0.00095367, 'amount': 100},
+                                      closed_order[0]['transaction'][0])
+
+        balance = self.ex.fetch_balance()
+        self.assertDictEqual(balance['ETH'], {'free': 89.904633, 'used': 0, 'total': 89.904633})
+        self.assertDictEqual(balance['XRP'], {'free': 99.95, 'used': 0, 'total': 99.95})
+        self.assertDictEqual(balance['USDT'], {'free': 8855.57, 'used': 0, 'total': 8855.57})
+
+
+def test_list_and_delist(self):
         # newly list
         self.forward_to_timestamp(1517601360000)
         self.assertEqual(self.ex.fetch_timestamp(), 1517601360000)

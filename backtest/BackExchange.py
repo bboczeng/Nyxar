@@ -13,9 +13,18 @@ from networkx.exception import NetworkXNoPath
 import networkx as nx
 import math
 
+# Principle of exception raise:
+# There are two levels of check. For those exceptions not related to the exchange, it will raise immediately.
+# Ex.: a order whose amount is -1
+# For insufficient funds exception, it will be raised during processing stage
+# slippage check should be in slippage class
+
+# short sell
+# margin
 
 _TOLERANCE = 1e-9
 _PREC = 8
+
 
 class PriceType(Enum):
     Open = QuoteFields.Open
