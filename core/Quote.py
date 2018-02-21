@@ -7,11 +7,11 @@ This file implements the basic I/O operations for an asset
 
 import os
 import csv
-
 import pandas as pd
 
 from enum import Enum
-
+from decimal import *
+getcontext().prec = 8
 
 class QuoteFields(Enum):
     High = "high"
@@ -105,7 +105,10 @@ class QuoteCSV(QuoteBase):
                        len(set(each) - {"timestamp", "open", "high", "low", "closing", "volume"}) == 0, \
                     "format error for CSV dataset header, it has to be 6 cols:  timestamp + OHLCV"
                 break
+        #pd_data = pd.read_csv(file_path, converters={'open': Decimal, 'high': Decimal, 'low': Decimal,
+        #                                             'close': Decimal, 'volume': Decimal})
         pd_data = pd.read_csv(file_path)
+
         # use timestamp as primary key
         self._data = pd_data.set_index("timestamp")
         print("Read " + str(self._data.size) + " lines of price data for quote " + self._symbol)

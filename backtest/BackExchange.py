@@ -15,7 +15,7 @@ import math
 
 
 _TOLERANCE = 1e-9
-
+_PREC = 8
 
 class PriceType(Enum):
     Open = QuoteFields.Open
@@ -126,7 +126,7 @@ class BackExchange(object):
         if asset in self._assets:
             self._total_balance[asset] += amount
             self._available_balance[asset] += amount
-            self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': amount})
+            self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': round(amount, _PREC)})
             return amount
         else:
             raise NotSupported
@@ -143,7 +143,7 @@ class BackExchange(object):
                 amount = self._available_balance[asset]
             self._total_balance[asset] -= amount
             self._available_balance[asset] -= amount
-            self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': -amount})
+            self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': round(-amount, _PREC)})
             return -amount
         else:
             raise NotSupported
@@ -158,13 +158,13 @@ class BackExchange(object):
     def fetch_balance(self) -> dict:
         """
         Returns:
-            Dictionary of form: {symbol: {'total': xxx, 'available': xxx, 'in order': xxx}, ...}
+            Dictionary of form: {symbol: {'total': xxx, 'free': xxx, 'used': xxx}, ...}
         """
         balance = {}
         for asset in self._assets:
-            balance[asset] = {'total': self._total_balance[asset],
-                              'available': self._available_balance[asset],
-                              'in order': self.__frozen_balance(asset)}
+            balance[asset] = {'total': round(self._total_balance[asset], _PREC),
+                              'free': round(self._available_balance[asset], _PREC),
+                              'used': round(self.__frozen_balance(asset), _PREC)}
         return balance
 
     def fetch_ticker(self, symbol: str='') -> dict:
@@ -251,6 +251,7 @@ class BackExchange(object):
              A bool indicates whether the order is filled or not.
         """
         assert order.type is OrderType.Market and order.remaining == order.amount
+        assert order.status is not OrderStatus.Cancelled
 
         price, amount = self._slippage_model.generate_tx(price=self.__get_price(order.symbol,
                                                                self._buy_price if order.side is OrderSide.Buy
@@ -282,15 +283,14 @@ class BackExchange(object):
     def __accept_market_order(self, order: Order):
         assert order.type is OrderType.Market
         if order.symbol not in self._symbols:
+            # still need this, as a symbol may be delisted at this timestamp
             raise InvalidOrder
-        elif order.status is OrderStatus.Cancelled:
-            self._closed_orders.insert_order(order)
         else:
             # market order is never "open". if accepted, it is executed immediately
             self.__execute_market_order(order)
             assert order.status is OrderStatus.Filled
             self._closed_orders.insert_order(order)
-            print('[BackExchange] Market order {:s} accepted and executed. '.format(order.id))
+            print('[BackExchange] Market order {:s} accepted and executed. '.format(str(order.id)))
 
     def __execute_limit_order(self, order: Order):
         """
@@ -302,6 +302,7 @@ class BackExchange(object):
         """
         assert (order.type is OrderType.Limit) or (
                 (order.type is OrderType.StopLimit) and (order.status is OrderStatus.Open))
+        assert order.status is not OrderStatus.Cancelled
 
         is_filled = False
         price, amount = self._slippage_model.generate_tx(price=self.__get_price(order.symbol,
@@ -321,20 +322,20 @@ class BackExchange(object):
 
             if order.status is OrderStatus.Filled:
                 print('[BackExchange] {:s}Limit buy order {:s} filled. '
-                      .format('' if order.type is OrderType.Limit else 'Stop ', order.id))
+                      .format('' if order.type is OrderType.Limit else 'Stop ', str(order.id)))
             else:
                 print('[BackExchange] {:s}Limit buy order {:s} partially filled to {:2}%. '
-                      .format('' if order.type is OrderType.Limit else 'Stop ', order.id, order.filled_percentage))
+                      .format('' if order.type is OrderType.Limit else 'Stop ', str(order.id), order.filled_percentage))
         elif order.side is OrderSide.Sell and price >= order.price:
             # Limit sell order never executes above the order price, even if there is a buy order with higher price
             is_filled = self.__execute_sell(order, order.price, amount)
 
             if order.status is OrderStatus.Filled:
                 print('[BackExchange] {:s}Limit sell order {:s} filled. '
-                      .format('' if order.type is OrderType.Limit else 'Stop ', order.id))
+                      .format('' if order.type is OrderType.Limit else 'Stop ', str(order.id)))
             else:
                 print('[BackExchange] {:s}Limit sell order {:s} partially filled to {:2}%. '
-                      .format('' if order.type is OrderType.Limit else 'Stop ', order.id, order.filled_percentage))
+                      .format('' if order.type is OrderType.Limit else 'Stop ', str(order.id), order.filled_percentage))
 
         return is_filled
 
@@ -359,35 +360,39 @@ class BackExchange(object):
             if order.type is OrderType.Limit:
                 order.open()
                 self._open_orders.insert_order(order)
-                print('[BackExchange] Limit order {:s} accepted. '.format(order.id))
+                print('[BackExchange] Limit order {:s} accepted. '.format(str(order.id)))
             elif order.type is OrderType.StopLimit:
                 order.accept()
                 self._open_orders.insert_order(order)
-                print('[BackExchange] Stop Limit order {:s} accepted. '.format(order.id))
+                print('[BackExchange] Stop Limit order {:s} accepted. '.format(str(order.id)))
 
     def __open_stop_limit_order(self, order: Order) -> bool:
         assert order.type is OrderType.StopLimit
         if order.side is OrderSide.Buy and self.__get_price(order.symbol, self._buy_price) >= order.stop_price:
             order.open()
-            print('[BackExchange] Stop Limit buy order {:s} opened. '.format(order.id))
+            print('[BackExchange] Stop Limit buy order {:s} opened. '.format(str(order.id)))
             return True
         elif order.side is OrderSide.Sell and self.__get_price(order.symbol, self._sell_price) <= order.stop_price:
             order.open()
-            print('[BackExchange] Stop Limit sell order {:s} opened. '.format(order.id))
+            print('[BackExchange] Stop Limit sell order {:s} opened. '.format(str(order.id)))
             return True
         return False
 
-    def create_order(self, *, symbol: str, side: OrderSide, order_type: OrderType, amount: float, price: float=None,
-                     stop_price: float=None):
-        names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        return self._submitted_orders.add_new_order(timestamp=self.__time,
-                                                    order_type=order_type,
-                                                    side=side,
-                                                    quote_name=names[0],
-                                                    base_name=names[1],
-                                                    amount=amount,
-                                                    price=price,
-                                                    stop_price=stop_price)
+    def create_order(self, *, symbol: str, side: OrderSide, order_type: OrderType, amount: float, price: float=0,
+                     stop_price: float=0):
+        if symbol not in self._symbols:
+            # even if the symbol is supported in the next timestamp, in principle you shouldn't be able to know it
+            # without first fetching a ticker
+            raise InvalidOrder
+
+        order_id = self._submitted_orders.add_new_order(timestamp=self.__time,
+                                                        order_type=order_type,
+                                                        side=side,
+                                                        symbol=symbol,
+                                                        amount=amount,
+                                                        price=price,
+                                                        stop_price=stop_price)
+        return self.fetch_submitted_order(order_id)
 
     def create_market_buy_order(self, *, symbol: str, amount: float):
         return self.create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.Market, amount=amount)
@@ -411,7 +416,7 @@ class BackExchange(object):
         return self.create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.StopLimit, amount=amount,
                                  price=price, stop_price=stop_price)
 
-    def cancel_submitted_order(self, order_id: str):
+    def cancel_submitted_order(self, order_id):
         """
         Submitted order is like a cache. If submitted order is cancelled, it is as if the request if not sent to the
         exchange. Therefore, it does not leave any history.
@@ -435,6 +440,9 @@ class BackExchange(object):
     def fetch_submitted_order(self, order_id: str) -> dict:
         return self._submitted_orders[order_id].info
 
+    def fetch_submitted_orders(self, limit: int=0) -> list:
+        return self._submitted_orders.get_orders(limit, id_only=False)
+
     def fetch_order(self, order_id: str) -> dict:
         try:
             order = self._open_orders[order_id]
@@ -443,10 +451,10 @@ class BackExchange(object):
 
         return order.info
 
-    def fetch_open_orders(self, *, symbol='', limit=0):
+    def fetch_open_orders(self, *, symbol: str='', limit: int=0):
         return self._open_orders.get_orders(symbol, limit, id_only=False)
 
-    def fetch_closed_orders(self, *, symbol='', limit=0):
+    def fetch_closed_orders(self, *, symbol: str, limit: int=0):
         return self._closed_orders.get_orders(symbol, limit, id_only=False)
 
     def balance_consistency_check(self):
@@ -493,6 +501,7 @@ class BackExchange(object):
                 total_balance[asset] -= fee[asset]
 
         for asset in total_balance:
+            #print(asset, self._total_balance[asset], total_balance[asset])
             assert abs(self._total_balance[asset] - total_balance[asset]) < _TOLERANCE
 
     def process(self):
@@ -525,6 +534,8 @@ class BackExchange(object):
         # resolve submitted order
         while self._submitted_orders:
             order = self._submitted_orders.pop_order()
+            if order.status is OrderStatus.Cancelled:
+                continue
             if order.type is OrderType.Market:
                 self.__accept_market_order(order)
             elif order.type is OrderType.Limit or order.type is OrderType.StopLimit:

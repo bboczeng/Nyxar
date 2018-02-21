@@ -1,46 +1,4 @@
-##############
-# For reference, here is the structure of order returned by ccxt library:
-#
-#{
-#    'id':        '12345-67890:09876/54321', // string
-#    'datetime':  '2017-08-17 12:42:48.000', // ISO8601 datetime with milliseconds
-#    'timestamp':  1502962946216, // Unix timestamp in milliseconds
-#    'status':    'open',         // 'open', 'closed', 'canceled'
-#    'symbol':    'ETH/BTC',      // symbol
-#    'type':      'limit',        // 'market', 'limit'
-#    'side':      'buy',          // 'buy', 'sell'
-#    'price':      0.06917684,    // float price in quote currency
-#    'amount':     1.5,           // ordered amount of base currency
-#    'filled':     1.0,           // filled amount of base currency
-#    'remaining':  0.5,           // remaining amount to fill
-#    'trades':   [ ... ],         // a list of order trades/executions
-#    'fee':      {                // fee info, if available
-#        'currency': 'BTC',       // which currency the fee is (usually quote)
-#        'cost': 0.0009,          // the fee amount in that currency
-#    },
-#    'info':     { ... },         // the original unparsed order structure as is
-#}
-#
-# Regarding our implementation of order class:
-#
-#	1. Any particular reason why timestamp should be string? Just use an integer.
-#	2. I suggest create a dict for all supported currencies and an corresponding ID. Just use currency
-#      name as ID.
-#      Instead of saving Order.name, we should save Order.quote_currency and Order.base_currency as ID, 
-#      and save Order.side as 'buy' or 'sell'. This will allow easy searching. 
-#      We can of course provide a method converting these ID to pair name like "ETH/BTC". 
-#   3. Should add an ID for each order, enabling the TradeAlgo to query and cancel that order. 
-#   4. Instead of saving Order.fill_percentage, save Order.filled. Percentage and remaining should be 
-#      calculated through provided method. 
-#   5. The balance of each currency can be a list, accessed by currency ID. Lets make Currency String Name
-#      as its ID.
-#   
-# Regarding our general implementation:
-#   1. We don't need to distinguish open order and order. All orders should have filled amount. 
-#      (See History order in binance)
-#   2. We also need to create a trade class, and store all past trades. See "trades" in the previous structure,
-#      and the following 
-#   3. Here is what happens in every time cycle: 
+#   3. Here is what happens in every time cycle:
 #	   Note that the order placed on this timestamp will always be processed at next timestamp.
 #       a. Update the latest market price based on timestamp. 
 #       b. Resolve all open orders in OpenOrder. 
@@ -87,6 +45,10 @@ from datetime import datetime
 from collections import OrderedDict
 from sortedcontainers import SortedDict
 
+import time
+
+_PREC = 8
+_PPREC = 2
 
 class OrderSide(Enum):
     Buy = "buy"
@@ -120,9 +82,9 @@ class Transaction(object):
         self._price = price
         self._id = self._generate_unique_id()
 
-    def _generate_unique_id(self) -> str:
+    def _generate_unique_id(self) -> int:
         # should be unique, datetime + name
-        return self.datetime.isoformat() + ':' + self.symbol
+        return hash(str(time.time()) + self.symbol)
 
     @property
     def timestamp(self) -> int:
@@ -157,8 +119,13 @@ class Transaction(object):
         return self._price
 
     @property
-    def id(self) -> str:
+    def id(self) -> int:
         return self._id
+
+    @property
+    def info(self) -> dict:
+        return {'datetime': str(self.datetime), 'timestamp': self.timestamp, 'price': round(self.price, _PREC),
+                'amount': round(self.amount, _PREC)}
 
 
 class Order(object):
@@ -170,6 +137,12 @@ class Order(object):
             raise InvalidOrder
         if order_type is OrderType.StopLimit and stop_price <= 0:
             raise InvalidOrder
+
+        # follow the convention of ccxt
+        if order_type is OrderType.Market:
+            price = 0
+        if order_type is not OrderType.StopLimit:
+            stop_price = 0
 
         self._timestamp = timestamp
         self._datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
@@ -187,9 +160,9 @@ class Order(object):
         self._fee = {}
         self._id = self._generate_unique_id()
 
-    def _generate_unique_id(self) -> str:
+    def _generate_unique_id(self) -> int:
         # should be unique, datetime + name
-        return self.datetime.isoformat() + ':' + self.symbol
+        return hash(str(time.time()) + self.symbol)
 
     @property
     def timestamp(self) -> int:
@@ -233,7 +206,7 @@ class Order(object):
 
     @property
     def filled_percentage(self) -> float:
-        return (self._filled / self._amount) * 100.0
+        return round((self._filled / self._amount) * 100.0, _PPREC)
 
     @property
     def price(self) -> float:
@@ -244,7 +217,7 @@ class Order(object):
         return self._stop_price
 
     @property
-    def id(self) -> str:
+    def id(self) -> int:
         return self._id
 
     @property
@@ -265,10 +238,12 @@ class Order(object):
 
     @property
     def info(self) -> dict:
-        return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status,
-                'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value, 'price': self.price,
-                'amount': self.amount, 'filled': self.filled, 'remaining': self.remaining,
-                'transaction': self.transactions, 'fee': self.fee}
+        return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status.value,
+                'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value,
+                'price': round(self.price, _PREC), 'amount': round(self.amount, _PREC),
+                'filled': round(self.filled, _PREC), 'remaining': round(self.remaining, _PREC),
+                'transaction': [tx.info for tx in self._transactions],
+                'fee': {a: round(self.fee[a], _PREC) for a in self.fee}}
 
     def open(self):
         assert self.type is not OrderType.Market
@@ -342,14 +317,29 @@ class OrderQueue(OrderBookBase):
     def __init__(self):
         self.book = OrderedDict()
 
-    def add_new_order(self, *, timestamp, order_type, side, quote_name, base_name, amount, price, stop_price):
-        new_order = Order(timestamp=timestamp, order_type=order_type, side=side, quote_name=quote_name,
-                          base_name=base_name, amount=amount, price=price, stop_price=stop_price)
+    def add_new_order(self, *, timestamp, order_type, side, symbol, amount, price, stop_price):
+        names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
+        assert len(names) == 2
+        new_order = Order(timestamp=timestamp, order_type=order_type, side=side, quote_name=names[0],
+                          base_name=names[1], amount=amount, price=price, stop_price=stop_price)
         self.book[new_order.id] = new_order
         return new_order.id
 
     def pop_order(self) -> Order:
         return self.book.popitem(last=False)[1]
+
+    def get_orders(self, limit: int=0, id_only=True) -> list:
+        orders = []
+        count = 0
+        for order_id, order in list(self.book.items()):
+            if id_only:
+                orders.append(order_id)
+            else:
+                orders.append(order.info)
+            count += 1
+            if limit > 0 and count == limit:
+                break
+        return orders
 
 
 class OrderBook(OrderBookBase):
@@ -397,8 +387,8 @@ class OrderBook(OrderBookBase):
 
         if not id_only:
             orders = []
-            for order in order_list:
-                orders.append(order.info)
-            return order
+            for order_id in order_list:
+                orders.append(self.book[order_id].info)
+            return orders
 
         return order_list
