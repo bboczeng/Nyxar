@@ -58,7 +58,7 @@ class OrderSide(Enum):
 class OrderType(Enum):
     Limit = "limit"
     Market = "market"
-    StopLimit = "stoplimit"
+    StopLimit = "stop_limit"
 
 
 class OrderStatus(Enum):
@@ -131,18 +131,13 @@ class Transaction(object):
 class Order(object):
     def __init__(self, *, timestamp: int, order_type: OrderType, side: OrderSide, quote_name: str, base_name: str,
                  amount: float, price: float, stop_price: float):
-        if amount <= 0:
-            raise InvalidOrder
-        if order_type is not OrderType.Market and price <= 0:
-            raise InvalidOrder
-        if order_type is OrderType.StopLimit and stop_price <= 0:
-            raise InvalidOrder
-
+        assert amount > 0
         # follow the convention of ccxt
         if order_type is OrderType.Market:
             price = 0
         if order_type is not OrderType.StopLimit:
             stop_price = 0
+        assert price >= 0 and stop_price >= 0
 
         self._timestamp = timestamp
         self._datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
@@ -233,16 +228,12 @@ class Order(object):
         return self._fee
 
     @property
-    def filled_percentage(self) -> float:
-        return 1.0 * self.filled / self.amount
-
-    @property
     def info(self) -> dict:
         return {'id': self.id, 'datetime': str(self.datetime), 'timestamp': self.timestamp, 'status': self.status.value,
                 'symbol': self.symbol, 'type': self.type.value, 'side': self.side.value,
-                'price': round(self.price, _PREC), 'amount': round(self.amount, _PREC),
-                'filled': round(self.filled, _PREC), 'remaining': round(self.remaining, _PREC),
-                'transaction': [tx.info for tx in self._transactions],
+                'price': round(self.price, _PREC), 'stop_price': round(self.stop_price, _PREC),
+                'amount': round(self.amount, _PREC), 'filled': round(self.filled, _PREC),
+                'remaining': round(self.remaining, _PREC), 'transaction': [tx.info for tx in self._transactions],
                 'fee': {a: round(self.fee[a], _PREC) for a in self.fee}}
 
     def open(self):
@@ -307,10 +298,7 @@ class OrderBookBase(object):
         return len(self.book)
 
     def get_order(self, order_id: str) -> Order:
-        try:
-            return self.book[order_id]
-        except KeyError:
-            raise OrderNotFound
+        return self.book[order_id]
 
 
 class OrderQueue(OrderBookBase):
@@ -337,7 +325,7 @@ class OrderQueue(OrderBookBase):
             else:
                 orders.append(order.info)
             count += 1
-            if limit > 0 and count == limit:
+            if count == limit > 0:
                 break
         return orders
 
@@ -361,13 +349,9 @@ class OrderBook(OrderBookBase):
             self.symbol_dict[symbol][order_id] = order
 
     def remove_order(self, order: Order):
-        order_id = order.id
-        if order_id in self.book:
-            del self.time_dict[order_id]
-            del self.symbol_dict[order.symbol][order_id]
-            del self.book[order_id]  # must delete this last. otherwise key lambda can't be executed
-        else:
-            raise OrderNotFound
+        del self.time_dict[order.id]
+        del self.symbol_dict[order.symbol][order.id]
+        del self.book[order.id]  # must delete this last. otherwise key lambda can't be executed
 
     def get_orders(self, symbol: str='', limit: int=0, id_only=True) -> list:
         if symbol == '':

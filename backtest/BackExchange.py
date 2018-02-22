@@ -19,6 +19,7 @@ import math
 # For insufficient funds exception, it will be raised during processing stage
 # slippage check should be in slippage class
 
+# precision issue. <= needs to be fixed
 # short sell
 # margin
 
@@ -88,14 +89,29 @@ class BackExchange(object):
                 continue
         return supported_symbols, supported_assets
 
-    def balance_in(self, target: str) -> float:
+    def fetch_balance_in(self, target: str, fee: bool=False) -> float:
+        """
+        Return the value of current portfolio all in target asset. The transfer rate is computed from the most
+        profitable way possible. If there is no possible way to transfer an asset to the target one, an exception will
+        be raised.
+
+        Args:
+            target: Name of the target asset
+            fee: If exchange fee is considered when computing the portfolio value. Defaults to False.
+
+        Returns:
+            Portfolio value
+        """
+
         G = nx.DiGraph()
+        multiplier = 1.0 - self._fee_rate / 100.0 if fee else 1.0
 
         for symbol in self._symbols:
             quote_name = self._quotes.get_quote(symbol).quote_name
             base_name = self._quotes.get_quote(symbol).base_name
-            G.add_edge(quote_name, base_name, weight=-math.log(self.__get_price(symbol, self._sell_price)))
-            G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price)))
+
+            G.add_edge(quote_name, base_name, weight=-math.log(multiplier * self.__get_price(symbol, self._sell_price)))
+            G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price) / multiplier))
 
         balance = 0
         for asset in self._total_balance:
@@ -106,10 +122,10 @@ class BackExchange(object):
                 try:
                     weight = nx.shortest_path_length(G, asset, target, "weight")
                 except NetworkXNoPath:
-                    raise Exception("Not possible to convert all assets to the target asset. ")
+                    raise NotSupported("Not possible to convert all assets to the target asset. ")
                 balance += math.exp(-weight) * self._total_balance[asset]
 
-        return balance
+        return round(balance, _PREC)
 
     def fetch_timestamp(self) -> int:
         """
@@ -375,6 +391,9 @@ class BackExchange(object):
                 self._open_orders.insert_order(order)
                 print('[BackExchange] Stop Limit order {:s} accepted. '.format(str(order.id)))
 
+    def __accept_stop_limit_order(self, order: Order):
+        self.__accept_limit_order(order)
+
     def __open_stop_limit_order(self, order: Order) -> bool:
         assert order.type is OrderType.StopLimit
         if order.side is OrderSide.Buy and self.__get_price(order.symbol, self._buy_price) >= order.stop_price:
@@ -387,11 +406,35 @@ class BackExchange(object):
             return True
         return False
 
-    def create_order(self, *, symbol: str, side: OrderSide, order_type: OrderType, amount: float, price: float=0,
-                     stop_price: float=0):
-        if symbol not in self._symbols:
+    def __create_order(self, symbol: str, side: OrderSide, order_type: OrderType, amount: float, price: float=0,
+                       stop_price: float=0) -> dict:
+        """
+        Create a general order and submit it to the submitted order queue.
+
+        Submitted order queue is basically a cache. It exists because in the backtest submitted orders cannot be
+        processed immediately, as orders submitted at this timestamp is to be executed at next timestamp. So all the
+        submitted orders are first pushed into this queue and wait to be resolved by the BackExchange at the beginning
+        of the next timestamp.
+
+        For all order types, amount should be positive and the trading symbol should be supported by the BackExchange.
+        InvalidOrder will be raised if these two requirements are violated. Other requirements that are dedicated to
+        specific order types are checked in the dedicated method.
+        (In the future when short sell is supported, the requirement of positive amount may be removed. )
+
+        Args:
+            symbol: Trading symbol of the order.
+            side: Side of the order (buy/sell).
+            order_type: Type of the order.
+            amount: Amount to be executed.
+            price: Limit price for limit order and stop limit order. Defaults to 0 for market order.
+            stop_price: Stop price for stop limit order. Defaults to 0 for market and limit order.
+
+        Returns:
+            A dictionary contains the created order info.
+        """
+        if symbol not in self._symbols or amount <= 0:
             # even if the symbol is supported in the next timestamp, in principle you shouldn't be able to know it
-            # without first fetching a ticker
+            # at the current timestamp
             raise InvalidOrder
 
         order_id = self._submitted_orders.add_new_order(timestamp=self.__time,
@@ -403,38 +446,75 @@ class BackExchange(object):
                                                         stop_price=stop_price)
         return self.fetch_submitted_order(order_id)
 
-    def create_market_buy_order(self, *, symbol: str, amount: float):
-        return self.create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.Market, amount=amount)
+    def create_market_buy_order(self, symbol: str, amount: float):
+        return self.__create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.Market, amount=amount)
 
-    def create_market_sell_order(self, *, symbol: str, amount: float):
-        return self.create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.Market, amount=amount)
+    def create_market_sell_order(self, symbol: str, amount: float):
+        return self.__create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.Market, amount=amount)
 
-    def create_limit_buy_order(self, *, symbol: str, amount: float, price: float):
-        return self.create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.Limit, amount=amount,
-                                 price=price)
+    def create_limit_buy_order(self, symbol: str, amount: float, price: float):
+        """
+        For limit orders, price should be positive. InvalidOrder will be raised otherwise.
+        """
+        if price <= 0:
+            raise InvalidOrder
+        return self.__create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.Limit, amount=amount,
+                                   price=price)
 
     def create_limit_sell_order(self, *, symbol: str, amount: float, price: float):
-        return self.create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.Limit, amount=amount,
-                                 price=price)
+        """
+        For limit orders, price should be positive. InvalidOrder will be raised otherwise.
+        """
+        if price <= 0:
+            raise InvalidOrder
+        return self.__create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.Limit, amount=amount,
+                                   price=price)
 
-    def create_stop_limit_buy_order(self, *, symbol, amount, price, stop_price):
-        return self.create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.StopLimit, amount=amount,
-                                 price=price, stop_price=stop_price)
+    def create_stop_limit_buy_order(self, symbol: str, amount: float, price: float, stop_price: float):
+        """
+        For stop limit orders, both price and stop price should be positive. InvalidOrder will be raised otherwise.
+        """
+        if stop_price <= 0 or price <= 0:
+            raise InvalidOrder
+        return self.__create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.StopLimit, amount=amount,
+                                   price=price, stop_price=stop_price)
 
-    def create_stop_limit_sell_order(self, *, symbol, amount, price, stop_price):
-        return self.create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.StopLimit, amount=amount,
-                                 price=price, stop_price=stop_price)
+    def create_stop_limit_sell_order(self, symbol: str, amount: float, price: float, stop_price: float):
+        """
+        For stop limit orders, both price and stop price should be positive. InvalidOrder will be raised otherwise.
+        """
+        if stop_price <= 0 or price <= 0:
+            raise InvalidOrder
+        return self.__create_order(symbol=symbol, side=OrderSide.Sell, order_type=OrderType.StopLimit, amount=amount,
+                                   price=price, stop_price=stop_price)
 
     def cancel_submitted_order(self, order_id):
         """
-        Submitted order is like a cache. If submitted order is cancelled, it is as if the request if not sent to the
-        exchange. Therefore, it does not leave any history.
-        """
-        self._submitted_orders[order_id].cancel()
+        Cancel the order with order_id in the submitted order queue. Raise OrderNotFound if order not exists.
 
-    def cancel_open_order(self, order_id: str):
-        order = self._open_orders[order_id]
-        # order status
+        If submitted order is cancelled, it is as if the request if not sent to the exchange. Therefore, cancelled
+        submitted order does not leave any history in the closed order book.
+
+        Args:
+             order_id: The id of to be cancelled order.
+        """
+        try:
+            self._submitted_orders[order_id].cancel()
+        except KeyError:
+            raise OrderNotFound
+
+    def cancel_open_order(self, order_id):
+        """
+        Cancel the order with order_id in the open order book. Raise OrderNotFound if order not exists.
+
+        Args:
+             order_id: The id of to be cancelled order.
+        """
+        try:
+            order = self._open_orders[order_id]
+        except KeyError:
+            raise OrderNotFound
+        # change order status
         order.cancel()
         # order book management
         self._open_orders.remove_order(order)
@@ -444,7 +524,7 @@ class BackExchange(object):
             self._available_balance[order.base_name] += order.remaining * order.price
         elif order.side is OrderSide.Sell:
             self._available_balance[order.quote_name] += order.remaining
-        print("[BackExchange] Open order {:s} cancelled. ".format(order_id))
+        print("[BackExchange] Open order {:s} cancelled. ".format(str(order_id)))
 
     def fetch_submitted_order(self, order_id: str) -> dict:
         return self._submitted_orders[order_id].info
@@ -463,7 +543,7 @@ class BackExchange(object):
     def fetch_open_orders(self, *, symbol: str='', limit: int=0):
         return self._open_orders.get_orders(symbol, limit, id_only=False)
 
-    def fetch_closed_orders(self, *, symbol: str, limit: int=0):
+    def fetch_closed_orders(self, symbol: str, limit: int=0):
         return self._closed_orders.get_orders(symbol, limit, id_only=False)
 
     def balance_consistency_check(self):
@@ -509,48 +589,61 @@ class BackExchange(object):
             for asset in fee:
                 total_balance[asset] -= fee[asset]
 
-        for asset in total_balance:
-            #print(asset, self._total_balance[asset], total_balance[asset])
-            assert abs(self._total_balance[asset] - total_balance[asset]) < _TOLERANCE
+        for asset in self._assets:
+            if asset not in total_balance:
+                assert self._total_balance[asset] == 0
+            else:
+                assert abs(self._total_balance[asset] - total_balance[asset]) < _TOLERANCE
+
+    def __list(self, asset: str):
+        print('[BackExchange] Newly list: {}'.format(asset))
+        # add balance support
+        self._total_balance[asset] = 0
+        self._available_balance[asset] = 0
+
+    def __delist(self, asset: str):
+        print('[BackExchange] Delist: {}'.format(asset))
+        # cancel all open orders
+        for order_id in self._open_orders.get_orders():
+            order = self._open_orders[order_id]
+            if order.base_name == asset or order.quote_name == asset:
+                self.cancel_open_order(order_id)
+
+        # delete balance support
+        assert self.__frozen_balance(asset) == 0
+        self.withdraw(asset, self._total_balance[asset])
+        del self._total_balance[asset]
+        del self._available_balance[asset]
 
     def process(self):
         print('[BackExchange] Current timestamp: {}'.format(self.__time))
         if self.__time == self._last_processed_timestamp:
             raise Exception("Same timestamp shouldn't be processed more than once. ")
 
-        # newly list and delist assets
+        # list and delist assets
         symbols, assets = self.__current_supported()
-        # newly list
+        # list
         for asset in assets - self._assets:
-            print('[BackExchange] Newly list: {}'.format(asset))
-            self._total_balance[asset] = 0
-            self._available_balance[asset] = 0
+            self.__list(asset)
         # delist
         for asset in self._assets - assets:
-            print('[BackExchange] Delist: {}'.format(asset))
-            for order_id in self._open_orders.get_orders():
-                order = self._open_orders[order_id]
-                if order.base_name == asset or order.quote_name == asset:
-                    self.cancel_open_order(order_id)
-            assert self.__frozen_balance(asset) == 0
-            self.withdraw(asset, self._total_balance[asset])
-            del self._total_balance[asset]
-            del self._available_balance[asset]
+            self.__delist(asset)
         self._symbols, self._assets = symbols, assets
 
-
         # resolve orders
-        # resolve submitted order
+        # submitted orders
         while self._submitted_orders:
             order = self._submitted_orders.pop_order()
             if order.status is OrderStatus.Cancelled:
                 continue
             if order.type is OrderType.Market:
                 self.__accept_market_order(order)
-            elif order.type is OrderType.Limit or order.type is OrderType.StopLimit:
+            elif order.type is OrderType.Limit:
                 self.__accept_limit_order(order)
+            elif order.type is OrderType.StopLimit:
+                self.__accept_stop_limit_order(order)
 
-        # resolve open orders
+        # open orders
         for order_id in self._open_orders.get_orders():
             order = self._open_orders[order_id]
             if order.type is OrderType.StopLimit and order.status is OrderStatus.Accepted:
@@ -561,7 +654,8 @@ class BackExchange(object):
 
         self._last_processed_timestamp = self.__time
 
-        # check if balance is consistent with order books
-        self.balance_consistency_check()
+        if __debug__:
+            # check if balance is consistent with order books
+            self.balance_consistency_check()
 
 
