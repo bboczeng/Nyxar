@@ -440,7 +440,8 @@ class BackExchange(object):
         order_id = self._submitted_orders.add_new_order(timestamp=self.__time,
                                                         order_type=order_type,
                                                         side=side,
-                                                        symbol=symbol,
+                                                        quote_name=self._quotes.get_quote(symbol).quote_name,
+                                                        base_name=self._quotes.get_quote(symbol).base_name,
                                                         amount=amount,
                                                         price=price,
                                                         stop_price=stop_price)
@@ -597,12 +598,16 @@ class BackExchange(object):
 
     def __list(self, asset: str):
         print('[BackExchange] Newly list: {}'.format(asset))
+
+        self._assets.add(asset)
+
         # add balance support
         self._total_balance[asset] = 0
         self._available_balance[asset] = 0
 
     def __delist(self, asset: str):
         print('[BackExchange] Delist: {}'.format(asset))
+
         # cancel all open orders
         for order_id in self._open_orders.get_orders():
             order = self._open_orders[order_id]
@@ -615,20 +620,22 @@ class BackExchange(object):
         del self._total_balance[asset]
         del self._available_balance[asset]
 
+        # this must be the final step, otherwise cannot withdraw balance
+        self._assets.remove(asset)
+
     def process(self):
         print('[BackExchange] Current timestamp: {}'.format(self.__time))
         if self.__time == self._last_processed_timestamp:
             raise Exception("Same timestamp shouldn't be processed more than once. ")
 
         # list and delist assets
-        symbols, assets = self.__current_supported()
+        self._symbols, assets = self.__current_supported()
         # list
         for asset in assets - self._assets:
             self.__list(asset)
         # delist
         for asset in self._assets - assets:
             self.__delist(asset)
-        self._symbols, self._assets = symbols, assets
 
         # resolve orders
         # submitted orders

@@ -305,11 +305,9 @@ class OrderQueue(OrderBookBase):
     def __init__(self):
         self.book = OrderedDict()
 
-    def add_new_order(self, *, timestamp, order_type, side, symbol, amount, price, stop_price):
-        names = symbol.translate({ord(c): ' ' for c in '-/'}).split()  # names = [quote_name, base_name]
-        assert len(names) == 2
-        new_order = Order(timestamp=timestamp, order_type=order_type, side=side, quote_name=names[0],
-                          base_name=names[1], amount=amount, price=price, stop_price=stop_price)
+    def add_new_order(self, *, timestamp, order_type, side, quote_name, base_name, amount, price, stop_price):
+        new_order = Order(timestamp=timestamp, order_type=order_type, side=side, quote_name=quote_name,
+                          base_name=base_name, amount=amount, price=price, stop_price=stop_price)
         self.book[new_order.id] = new_order
         return new_order.id
 
