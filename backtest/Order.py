@@ -70,7 +70,7 @@ class OrderStatus(Enum):
 
 
 class Transaction(object):
-    def __init__(self, *, quote_name: str, base_name: str, price: float, amount: float, side: OrderSide,
+    def __init__(self, quote_name: str, base_name: str, price: float, amount: float, side: OrderSide,
                  timestamp: int):
         self._timestamp = timestamp
         self._datetime = datetime.fromtimestamp(timestamp / 1000.0)
@@ -128,8 +128,8 @@ class Transaction(object):
                 'amount': round(self.amount, _PREC)}
 
 
-class Order(object):
-    def __init__(self, *, timestamp: int, order_type: OrderType, side: OrderSide, quote_name: str, base_name: str,
+class Order(Transaction):
+    def __init__(self, timestamp: int, order_type: OrderType, side: OrderSide, quote_name: str, base_name: str,
                  amount: float, price: float, stop_price: float):
         assert amount > 0
         # follow the convention of ccxt
@@ -139,33 +139,14 @@ class Order(object):
             stop_price = 0
         assert price >= 0 and stop_price >= 0
 
-        self._timestamp = timestamp
-        self._datetime = datetime.fromtimestamp(timestamp/1000.0)  # datatime object
+        super(Order, self).__init__(quote_name, base_name, price, amount, side, timestamp)
+
         self._status = OrderStatus.Submitted
         self._type = order_type
-        self._side = side
-        self._quote_name = quote_name
-        self._base_name = base_name
-        self._symbol = quote_name + "/" + base_name
-        self._amount = amount
-        self._price = price
         self._stop_price = stop_price
         self._filled = 0
         self._transactions = []
         self._fee = {}
-        self._id = self._generate_unique_id()
-
-    def _generate_unique_id(self) -> int:
-        # should be unique, datetime + name
-        return hash(str(time.time()) + self.symbol)
-
-    @property
-    def timestamp(self) -> int:
-        return self._timestamp
-
-    @property
-    def datetime(self) -> datetime:
-        return self._datetime
 
     @property
     def status(self) -> OrderStatus:
@@ -176,26 +157,6 @@ class Order(object):
         return self._type
 
     @property
-    def side(self) -> OrderSide:
-        return self._side
-
-    @property
-    def quote_name(self) -> str:
-        return self._quote_name
-
-    @property
-    def base_name(self) -> str:
-        return self._base_name
-
-    @property
-    def symbol(self) -> str:
-        return self._symbol
-
-    @property
-    def amount(self) -> float:
-        return self._amount
-
-    @property
     def filled(self) -> float:
         return self._filled
 
@@ -204,16 +165,8 @@ class Order(object):
         return round((self._filled / self._amount) * 100.0, _PPREC)
 
     @property
-    def price(self) -> float:
-        return self._price
-
-    @property
     def stop_price(self) -> float:
         return self._stop_price
-
-    @property
-    def id(self) -> int:
-        return self._id
 
     @property
     def remaining(self) -> float:
@@ -247,7 +200,7 @@ class Order(object):
     def cancel(self):
         self._status = OrderStatus.Cancelled
 
-    def generate_transaction(self, *, amount: float, price: float, timestamp: int) -> Transaction:
+    def generate_transaction(self, amount: float, price: float, timestamp: int) -> Transaction:
         return Transaction(quote_name=self.quote_name,
                            base_name=self.base_name,
                            price=price,
@@ -278,6 +231,8 @@ class Order(object):
             return False
 
     def pay_fee(self, asset: str, amount: float):
+        if amount == 0:
+            return
         if asset not in self.fee:
             self._fee[asset] = amount
         else:
@@ -359,7 +314,7 @@ class OrderBook(OrderBookBase):
                 limit = min(limit, len(self.book))
                 order_list = self.time_dict.iloc[-limit:]
         elif symbol not in self.symbol_dict:
-            raise OrderNotFound
+            return []
         else:
             if limit <= 0:
                 order_list = list(self.symbol_dict[symbol].keys())

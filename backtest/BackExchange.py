@@ -35,12 +35,9 @@ class PriceType(Enum):
 
 
 class BackExchange(object):
-    def __init__(self, *, timer: Timer, quotes: Quotes,
-                 buy_price: PriceType=PriceType.Open, sell_price: PriceType=PriceType.Open,
+    def __init__(self, timer: Timer, quotes: Quotes, buy_price: str='open', sell_price: str='open',
                  fee_rate: float=0.05, slippage_model: SlippageBase=SlippageBase()):
         assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
-        assert isinstance(buy_price, PriceType), "buy_price has to be PriceType class"
-        assert isinstance(sell_price, PriceType), "sell_price has to be PriceType class"
 
         self._quotes = quotes
         self._timer = timer
@@ -58,10 +55,10 @@ class BackExchange(object):
         self._open_orders = OrderBook()
         self._closed_orders = OrderBook()
 
-        self._buy_price = buy_price
-        self._sell_price = sell_price
-        self._fee_rate = fee_rate
-        self._slippage_model = slippage_model
+        self.buy_price = buy_price
+        self.sell_price = sell_price
+        self.fee_rate = fee_rate
+        self.slippage_model = slippage_model
 
         self._last_processed_timestamp = -1
 
@@ -89,43 +86,53 @@ class BackExchange(object):
                 continue
         return supported_symbols, supported_assets
 
-    def fetch_balance_in(self, target: str, fee: bool=False) -> float:
-        """
-        Return the value of current portfolio all in target asset. The transfer rate is computed from the most
-        profitable way possible. If there is no possible way to transfer an asset to the target one, an exception will
-        be raised.
+    @property
+    def fee_rate(self) -> float:
+        return self._fee_rate
 
-        Args:
-            target: Name of the target asset
-            fee: If exchange fee is considered when computing the portfolio value. Defaults to False.
+    @fee_rate.setter
+    def fee_rate(self, fee_rate: float):
+        if fee_rate < 0:
+            raise NotSupported
+        self._fee_rate = fee_rate
 
-        Returns:
-            Portfolio value
-        """
+    @property
+    def buy_price(self):
+        return self._buy_price.value.value
 
-        G = nx.DiGraph()
-        multiplier = 1.0 - self._fee_rate / 100.0 if fee else 1.0
+    @buy_price.setter
+    def buy_price(self, price_type: str):
+        if price_type == 'open':
+            self._buy_price = PriceType.Open
+        elif price_type == 'high':
+            self._buy_price = PriceType.High
+        elif price_type == 'low':
+            self._buy_price = PriceType.Low
+        elif price_type == 'close':
+            self._buy_price = PriceType.Close
 
-        for symbol in self._symbols:
-            quote_name = self._quotes.get_quote(symbol).quote_name
-            base_name = self._quotes.get_quote(symbol).base_name
+    @property
+    def sell_price(self):
+        return self._sell_price.value.value
 
-            G.add_edge(quote_name, base_name, weight=-math.log(multiplier * self.__get_price(symbol, self._sell_price)))
-            G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price) / multiplier))
+    @sell_price.setter
+    def sell_price(self, price_type: str):
+        if price_type == 'open':
+            self._sell_price = PriceType.Open
+        elif price_type == 'high':
+            self._sell_price = PriceType.High
+        elif price_type == 'low':
+            self._sell_price = PriceType.Low
+        elif price_type == 'close':
+            self._sell_price = PriceType.Close
 
-        balance = 0
-        for asset in self._total_balance:
-            if self._total_balance[asset]:
-                if asset == target:
-                    balance += self._total_balance[asset]
-                    continue
-                try:
-                    weight = nx.shortest_path_length(G, asset, target, "weight")
-                except NetworkXNoPath:
-                    raise NotSupported("Not possible to convert all assets to the target asset. ")
-                balance += math.exp(-weight) * self._total_balance[asset]
+    @property
+    def slippage_model(self):
+        return self._slippage_model.__class__.__name__
 
-        return round(balance, _PREC)
+    @slippage_model.setter
+    def slippage_model(self, slippage_model: SlippageBase):
+        self._slippage_model = slippage_model
 
     def fetch_timestamp(self) -> int:
         """
@@ -169,7 +176,7 @@ class BackExchange(object):
             self._total_balance[asset] -= amount
             self._available_balance[asset] -= amount
             self._deposit_history.append({'timestamp': self.__time, 'asset': asset, 'amount': round(-amount, _PREC)})
-            return -amount
+            return amount
         else:
             raise NotSupported
 
@@ -183,7 +190,7 @@ class BackExchange(object):
     def fetch_balance(self) -> dict:
         """
         Returns:
-            Dictionary of form: {symbol: {'total': xxx, 'free': xxx, 'used': xxx}, ...}
+            Dictionary of form: {asset: {'total': xxx, 'free': xxx, 'used': xxx}, ...}
         """
         balance = {}
         for asset in self._assets:
@@ -191,6 +198,44 @@ class BackExchange(object):
                               'free': round(self._available_balance[asset], _PREC),
                               'used': round(self.__frozen_balance(asset), _PREC)}
         return balance
+
+    def fetch_balance_in(self, target: str, fee: bool=False) -> float:
+        """
+        Return the value of current portfolio all in target asset. The transfer rate is computed from the most
+        profitable way possible. If there is no possible way to transfer an asset to the target one, an exception will
+        be raised.
+
+        Args:
+            target: Name of the target asset
+            fee: If exchange fee is considered when computing the portfolio value. Defaults to False.
+
+        Returns:
+            Portfolio value
+        """
+
+        G = nx.DiGraph()
+        multiplier = 1.0 - self._fee_rate / 100.0 if fee else 1.0
+
+        for symbol in self._symbols:
+            quote_name = self._quotes.get_quote(symbol).quote_name
+            base_name = self._quotes.get_quote(symbol).base_name
+
+            G.add_edge(quote_name, base_name, weight=-math.log(multiplier * self.__get_price(symbol, self._sell_price)))
+            G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price) / multiplier))
+
+        balance = 0
+        for asset in self._total_balance:
+            if self._total_balance[asset]:
+                if asset == target:
+                    balance += self._total_balance[asset]
+                    continue
+                try:
+                    weight = nx.shortest_path_length(G, asset, target, "weight")
+                except NetworkXNoPath:
+                    raise NotSupported("Not possible to convert all assets to the target asset. ")
+                balance += math.exp(-weight) * self._total_balance[asset]
+
+        return round(balance, _PREC)
 
     def fetch_ticker(self, symbol: str='') -> dict:
         """
@@ -493,7 +538,7 @@ class BackExchange(object):
         """
         Cancel the order with order_id in the submitted order queue. Raise OrderNotFound if order not exists.
 
-        If submitted order is cancelled, it is as if the request if not sent to the exchange. Therefore, cancelled
+        If submitted order is cancelled, it is as if the request is not sent to the exchange. Therefore, cancelled
         submitted order does not leave any history in the closed order book.
 
         Args:
@@ -530,7 +575,7 @@ class BackExchange(object):
     def fetch_submitted_order(self, order_id: str) -> dict:
         return self._submitted_orders[order_id].info
 
-    def fetch_submitted_orders(self, limit: int=0) -> list:
+    def fetch_submitted_orders(self, limit: int=500) -> list:
         return self._submitted_orders.get_orders(limit, id_only=False)
 
     def fetch_order(self, order_id: str) -> dict:
@@ -541,10 +586,12 @@ class BackExchange(object):
 
         return order.info
 
-    def fetch_open_orders(self, *, symbol: str='', limit: int=0):
+    def fetch_open_orders(self, symbol: str='', limit: int=500):
         return self._open_orders.get_orders(symbol, limit, id_only=False)
 
-    def fetch_closed_orders(self, symbol: str, limit: int=0):
+    def fetch_closed_orders(self, symbol: str, limit: int=500):
+        if symbol == '':
+            raise NotSupported
         return self._closed_orders.get_orders(symbol, limit, id_only=False)
 
     def balance_consistency_check(self):
@@ -596,7 +643,7 @@ class BackExchange(object):
             else:
                 assert abs(self._total_balance[asset] - total_balance[asset]) < _TOLERANCE
 
-    def __list(self, asset: str):
+    def __list_asset(self, asset: str):
         print('[BackExchange] Newly list: {}'.format(asset))
 
         self._assets.add(asset)
@@ -605,7 +652,7 @@ class BackExchange(object):
         self._total_balance[asset] = 0
         self._available_balance[asset] = 0
 
-    def __delist(self, asset: str):
+    def __delist_asset(self, asset: str):
         print('[BackExchange] Delist: {}'.format(asset))
 
         # cancel all open orders
@@ -623,19 +670,33 @@ class BackExchange(object):
         # this must be the final step, otherwise cannot withdraw balance
         self._assets.remove(asset)
 
-    def process(self):
+    def __add_symbol(self, symbol: str):
+        self._symbols.add(symbol)
+
+    def __remove_symbol(self, symbol: str):
+        # cancel all open orders
+        for order_id in self._open_orders.get_orders(symbol):
+            self.cancel_open_order(order_id)
+
+        self._symbols.remove(symbol)
+
+    def _process(self):
         print('[BackExchange] Current timestamp: {}'.format(self.__time))
         if self.__time == self._last_processed_timestamp:
             raise Exception("Same timestamp shouldn't be processed more than once. ")
 
         # list and delist assets
-        self._symbols, assets = self.__current_supported()
+        symbols, assets = self.__current_supported()
         # list
         for asset in assets - self._assets:
-            self.__list(asset)
+            self.__list_asset(asset)
         # delist
         for asset in self._assets - assets:
-            self.__delist(asset)
+            self.__delist_asset(asset)
+        for symbol in symbols - self._symbols:
+            self.__add_symbol(symbol)
+        for symbol in self._symbols - symbols:
+            self.__remove_symbol(symbol)
 
         # resolve orders
         # submitted orders
