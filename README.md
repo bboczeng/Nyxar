@@ -8,10 +8,10 @@ Features:
 
 - Built-in indicators (SMA, EMA, RSI, ...) for building your own trading strategy. 
 
-- Built-in analyzers (Sharpe ratio, drawdown, ...), cross-validation, and hypothesis testing for benchmarking your strategy. (under developing)
+- Built-in analyzers (Sharpe ratio, drawdown, ...), cross-validation, and hypothesis testing for benchmarking your strategy. (under development)
 
-- Multiple source of datafeed supported: mainstream cryptocurrency exchanges, quandal, csv file or pandas dataframe. (under developing)
+- Multiple source of datafeed supported: mainstream cryptocurrency exchanges, quandal, csv file or pandas dataframe. (under development)
 
 Documentation: http://nyxar.readthedocs.io/
 
-**Note: This project is in very early development stage. **
+**Note: This project is in very early development stage.**
