@@ -9,6 +9,12 @@ Overview
 
 The essential data taken by :class:`BackExchange` are timestamped OHLCV tickers, which are fed through :class:`Quotes` when it is first intialized. Its clock is controlled by the :class:`Timer`. At each time bar, :class:`BackExchange` takes and processes orders just like a real exchange.
 
+.. note::
+
+   * All tickers and balance are processed and returned with 8 decimal places. 
+
+   * Order matching is in favor of buyers. For example, if there is a sell order placed at price `10.0` and a buy order placed at `10.5`, the order will be executed at `10.0`. 
+
 
 Features
 **************
@@ -191,23 +197,23 @@ API Reference
 
       .. method:: fetch_submitted_order(order_id)
 
-         Return order info of the submitted order in the order queue whose id is `order_id`.
+         Return :attr:`Order.info` of the submitted order in the order queue whose id is `order_id`.
 
       .. method:: fetch_submitted_orders([limit=500])
 
-         Return order info of last `limit` submitted orders in the order queue. If `limit=0`, return info of all submitted orders. `limit` defaults to `500`. 
+         Return :attr:`Order.info` of last `limit` submitted orders in the order queue. If `limit=0`, return info of all submitted orders. `limit` defaults to `500`. 
 
       .. method:: fetch_order(order_id)
 
-         Return order info of the order whose id is `order_id` in the open order book or closed order book.
+         Return :attr:`Order.info` of the order whose id is `order_id` in the open order book or closed order book.
 
       .. method:: fetch_open_orders([symbol='', limit=500])
 
-         Return order info of last `limit` open orders in the open order book. If `symbol` is specified, only orders under that trading symbols are returned. Otherwise all open orders will be returned. If `limit=0`, return info of all open orders. `limit` defaults to `500`. 
+         Return :attr:`Order.info` of last `limit` open orders in the open order book. If `symbol` is specified, only orders under that trading symbols are returned. Otherwise all open orders will be returned. If `limit=0`, return info of all open orders. `limit` defaults to `500`. 
 
       .. method:: fetch_closed_orders(symbol[, limit=500])
 
-         Return order info of last `limit` closed orders in the closed order book. Different from :meth:`.fetch_open_orders`, `symbol` must be specified. 
+         Return :attr:`Order.info` of last `limit` closed orders in the closed order book. Different from :meth:`.fetch_open_orders`, `symbol` must be specified. 
 
 Exceptions
 ****************
