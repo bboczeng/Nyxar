@@ -1,8 +1,12 @@
+# to support:
+# short sell
+# margin
+
 from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
 
-from core.Quote import Quotes, QuoteFields
+from core.Ticker import Quotes, TickerFields
 from core.Timer import Timer
-from backtest.Order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue, Transaction
+from backtest.Order import OrderSide, OrderType, OrderStatus, Order, OrderBook, OrderQueue
 from backtest.Slippage import SlippageBase
 
 from enum import Enum
@@ -13,31 +17,21 @@ from networkx.exception import NetworkXNoPath
 import networkx as nx
 import math
 
-# Principle of exception raise:
-# There are two levels of check. For those exceptions not related to the exchange, it will raise immediately.
-# Ex.: a order whose amount is -1
-# For insufficient funds exception, it will be raised during processing stage
-# slippage check should be in slippage class
-
-# precision issue. <= needs to be fixed
-# short sell
-# margin
-
-_TOLERANCE = 1e-9
 _PREC = 8
+_ABS_TOL = 1e-9
 
 
 class PriceType(Enum):
-    Open = QuoteFields.Open
-    High = QuoteFields.High
-    Low = QuoteFields.Low
-    Close = QuoteFields.Close
+    Open = TickerFields.Open
+    High = TickerFields.High
+    Low = TickerFields.Low
+    Close = TickerFields.Close
 
 
 class BackExchange(object):
     def __init__(self, timer: Timer, quotes: Quotes, buy_price: str='open', sell_price: str='open',
                  fee_rate: float=0.05, slippage_model: SlippageBase=SlippageBase()):
-        assert isinstance(quotes, Quotes), "quotes has to be Quotes class"
+        assert isinstance(quotes, Quotes), "quotes has to be Tickers class"
 
         self._quotes = quotes
         self._timer = timer
@@ -66,14 +60,11 @@ class BackExchange(object):
     def __time(self):
         return self._timer.time
 
-    def __frozen_balance(self, asset: str):
-        return self._total_balance[asset] - self._available_balance[asset]
-
     def __get_price(self, symbol: str, price_type: PriceType) -> float:
-        return self._quotes.get_quote(symbol).get_value(self.__time, price_type.value)
+        return self._quotes.get_ticker(symbol).get_value(self.__time, price_type.value)
 
     def __get_volume(self, symbol: str) -> float:
-        return self._quotes.get_quote(symbol).volume(self.__time)
+        return self._quotes.get_ticker(symbol).volume(self.__time)
 
     def __current_supported(self) -> Tuple[set, set]:
         supported_symbols, supported_assets = set(), set()
@@ -81,10 +72,13 @@ class BackExchange(object):
             try:
                 self.__get_volume(symbol)
                 supported_symbols.add(symbol)
-                supported_assets |= {self._quotes.get_quote(symbol).quote_name, self._quotes.get_quote(symbol).base_name}
+                supported_assets |= {self._quotes.get_ticker(symbol).quote_name, self._quotes.get_ticker(symbol).base_name}
             except KeyError:
                 continue
         return supported_symbols, supported_assets
+
+    def __frozen_balance(self, asset: str):
+        return self._total_balance[asset] - self._available_balance[asset]
 
     @property
     def fee_rate(self) -> float:
@@ -217,8 +211,8 @@ class BackExchange(object):
         multiplier = 1.0 - self._fee_rate / 100.0 if fee else 1.0
 
         for symbol in self._symbols:
-            quote_name = self._quotes.get_quote(symbol).quote_name
-            base_name = self._quotes.get_quote(symbol).base_name
+            quote_name = self._quotes.get_ticker(symbol).quote_name
+            base_name = self._quotes.get_ticker(symbol).base_name
 
             G.add_edge(quote_name, base_name, weight=-math.log(multiplier * self.__get_price(symbol, self._sell_price)))
             G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price) / multiplier))
@@ -259,7 +253,7 @@ class BackExchange(object):
         elif symbol not in self._symbols:
             raise NotSupported
         else:
-            return self._quotes.get_quote(symbol).ohlcv(self.__time)
+            return self._quotes.get_ticker(symbol).ohlcv(self.__time)
 
     def __execute_buy(self, order: Order, price: float, amount: float) -> bool:
         """
@@ -327,8 +321,7 @@ class BackExchange(object):
                                                                self._buy_price if order.side is OrderSide.Buy
                                                                else self._sell_price),
                                                          amount=order.remaining,
-                                                         side=order.side,
-                                                         order_type=order.type,
+                                                         order_info=order.info,
                                                          ticker=self.fetch_ticker(order.symbol),
                                                          timestamp=self.__time)
 
@@ -379,15 +372,14 @@ class BackExchange(object):
                                                                self._buy_price if order.side is OrderSide.Buy
                                                                else self._sell_price),
                                                          amount=order.remaining,
-                                                         side=order.side,
-                                                         order_type=order.type,
+                                                         order_info=order.info,
                                                          ticker=self.fetch_ticker(order.symbol),
                                                          timestamp=self.__time)
 
         if price < 0 or amount > order.remaining:
             raise SlippageModelError
 
-        if order.side is OrderSide.Buy and price <= order.price:
+        if order.side is OrderSide.Buy and price <= order.price + _ABS_TOL:  # _ABS_TOL is for float precision issue
             is_filled = self.__execute_buy(order, price, amount)
 
             if order.status is OrderStatus.Filled:
@@ -396,7 +388,7 @@ class BackExchange(object):
             else:
                 print('[BackExchange] {:s}Limit buy order {:s} partially filled to {:2}%. '
                       .format('' if order.type is OrderType.Limit else 'Stop ', str(order.id), order.filled_percentage))
-        elif order.side is OrderSide.Sell and price >= order.price:
+        elif order.side is OrderSide.Sell and _ABS_TOL + price >= order.price:
             # Limit sell order never executes above the order price, even if there is a buy order with higher price
             is_filled = self.__execute_sell(order, order.price, amount)
 
@@ -441,11 +433,13 @@ class BackExchange(object):
 
     def __open_stop_limit_order(self, order: Order) -> bool:
         assert order.type is OrderType.StopLimit
-        if order.side is OrderSide.Buy and self.__get_price(order.symbol, self._buy_price) >= order.stop_price:
+        if order.side is OrderSide.Buy and (self.__get_price(order.symbol, self._buy_price) + _ABS_TOL >=
+                                            order.stop_price):
             order.open()
             print('[BackExchange] Stop Limit buy order {:s} opened. '.format(str(order.id)))
             return True
-        elif order.side is OrderSide.Sell and self.__get_price(order.symbol, self._sell_price) <= order.stop_price:
+        elif order.side is OrderSide.Sell and self.__get_price(order.symbol, self._sell_price) <= (order.stop_price
+                                                                                                   + _ABS_TOL):
             order.open()
             print('[BackExchange] Stop Limit sell order {:s} opened. '.format(str(order.id)))
             return True
@@ -485,8 +479,8 @@ class BackExchange(object):
         order_id = self._submitted_orders.add_new_order(timestamp=self.__time,
                                                         order_type=order_type,
                                                         side=side,
-                                                        quote_name=self._quotes.get_quote(symbol).quote_name,
-                                                        base_name=self._quotes.get_quote(symbol).base_name,
+                                                        quote_name=self._quotes.get_ticker(symbol).quote_name,
+                                                        base_name=self._quotes.get_ticker(symbol).base_name,
                                                         amount=amount,
                                                         price=price,
                                                         stop_price=stop_price)
@@ -507,7 +501,7 @@ class BackExchange(object):
         return self.__create_order(symbol=symbol, side=OrderSide.Buy, order_type=OrderType.Limit, amount=amount,
                                    price=price)
 
-    def create_limit_sell_order(self, *, symbol: str, amount: float, price: float):
+    def create_limit_sell_order(self, symbol: str, amount: float, price: float):
         """
         For limit orders, price should be positive. InvalidOrder will be raised otherwise.
         """
@@ -581,7 +575,7 @@ class BackExchange(object):
     def fetch_order(self, order_id: str) -> dict:
         try:
             order = self._open_orders[order_id]
-        except OrderNotFound:
+        except KeyError:
             order = self._closed_orders[order_id]
 
         return order.info
@@ -594,7 +588,7 @@ class BackExchange(object):
             raise NotSupported
         return self._closed_orders.get_orders(symbol, limit, id_only=False)
 
-    def balance_consistency_check(self):
+    def __balance_consistency_check(self):
         # check asset list
         assert self._assets == set(self._total_balance.keys()) == set(self._available_balance.keys())
 
@@ -609,7 +603,7 @@ class BackExchange(object):
             elif order.side is OrderSide.Sell:
                 in_order_balance[order.quote_name] += order.remaining
         for asset in in_order_balance:
-            assert abs(self.__frozen_balance(asset) - in_order_balance[asset]) < _TOLERANCE
+            assert abs(self.__frozen_balance(asset) - in_order_balance[asset]) < _ABS_TOL
 
         # check total balance
         # note that history transactions may include already delisted assets
@@ -641,7 +635,7 @@ class BackExchange(object):
             if asset not in total_balance:
                 assert self._total_balance[asset] == 0
             else:
-                assert abs(self._total_balance[asset] - total_balance[asset]) < _TOLERANCE
+                assert abs(self._total_balance[asset] - total_balance[asset]) < _ABS_TOL
 
     def __list_asset(self, asset: str):
         print('[BackExchange] Newly list: {}'.format(asset))
@@ -724,6 +718,6 @@ class BackExchange(object):
 
         if __debug__:
             # check if balance is consistent with order books
-            self.balance_consistency_check()
+            self.__balance_consistency_check()
 
 

@@ -1,45 +1,3 @@
-#   3. Here is what happens in every time cycle:
-#	   Note that the order placed on this timestamp will always be processed at next timestamp.
-#       a. Update the latest market price based on timestamp. 
-#       b. Resolve all open orders in OpenOrder. 
-#          1) For limit order, check if the current price meets the fill condition. 
-#		   2) Set the price to be this timestamps close price, for fulfilled limit order or market order.
-#			  (This part should be tunable. As one may also want to use high price for buy and low price 
-#			   for sell in order to get more realistic results. )
-#		   3) Call predefined slippage model to determine how the orders are filled (volume, fee, etc). 
-#		   4) Create corresponding trades and store in history trades. 
-#		   5) Update Order.filled and append Order.trades. Both OpenOrder and HistoryOrder should be updated 
-#			  automatically, as only the reference is saved. 
-#		   6) Update account balance. 
-#       c. Accepet requests from TradeAlgo, including
-#		   1) Place/cancel/query order (through order ID). 
-#          2) Query account balance.
-#		   3) Query market. (Not sure if we just automatically send the latest market data to TradeAlgo. )
-#          4) Query history trades or orderbook. 
-#		d. Before placing an order, first check if the account balance is enough. 
-#          As long as an order is placed, we create a new Order object, and put its reference in both 
-#          HistoryOrder and OpenOrder. 
-#
-# More on Slippage model:
-#   Exchange should be able to accept (optional) bid/ask. The slippage model should be able to run based
-#   on it. I think slippage is particularly important in cryptocurrency, due to the lack of liquidity and
-#   large bid-ask spread for altcoins. 
-#   
-#   Here is the API for slippage model in Zipline:
-#   ``Your custom model must be a class that inherits from slippage.SlippageModel and implements 
-#     process_order(self, data, order). The process_order method must return a tuple of 
-#     (execution_price, execution_volume), which signifies the price and volume for the transaction that 
-#     your model wants to generate. The transaction is then created for you. ''
-#
-# More features to add:
-#   1. Stop-loss/Stop-limit order. It is important because the order is placed and executed at different time. 
-#   2. More slippage model.
-#
-#
-#############
-
-from backtest.Errors import InvalidOrder, OrderNotFound
-
 from enum import Enum
 from datetime import datetime
 from collections import OrderedDict
@@ -260,7 +218,7 @@ class OrderQueue(OrderBookBase):
     def __init__(self):
         self.book = OrderedDict()
 
-    def add_new_order(self, *, timestamp, order_type, side, quote_name, base_name, amount, price, stop_price):
+    def add_new_order(self, timestamp, order_type, side, quote_name, base_name, amount, price, stop_price):
         new_order = Order(timestamp=timestamp, order_type=order_type, side=side, quote_name=quote_name,
                           base_name=base_name, amount=amount, price=price, stop_price=stop_price)
         self.book[new_order.id] = new_order
