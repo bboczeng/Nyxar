@@ -427,6 +427,11 @@ class SlippageModelBlackboxTest(unittest.TestCase):
         self.next_tickers(1)
         self.assertEqual(self.ex.fetch_order(order['id'])['status'], 'filled')
 
+        # market order is not affected
+        order = self.ex.create_market_buy_order('XRP/ETH', 500)
+        self.next_tickers(1)
+        self.assertEqual(len(self.ex.fetch_open_orders()), 0)
+
     def test_spread_slippage(self):
         bidask_path = '../data/'
         bidask = BidAsks()

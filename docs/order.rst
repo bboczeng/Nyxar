@@ -39,7 +39,7 @@ API Reference
 
 	.. attribute:: StopLimit
 
-		Stop limit order. Stop limit order will become a limit order when the ticker price is lower/higher than the stop price for sell/buy orders. 
+		Stop limit order. Stop limit order will become a limit order when the ticker price is lower/higher than the stop price for sell/buy orders. Note that whether to open a stop limit order is determined only by the ticker price. Slippage model is only effective in filling the order. 
 
 
 

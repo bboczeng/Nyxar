@@ -44,6 +44,8 @@ A common pitfall in backtesting strategies is `survivor bias <https://www.invest
 If a previously existing trading pair doesn't exist any more, all open orders under it will be forcely closed. If a previously existing asset doesn't appear in any trading pair, it is considered as delisted. The remaining balance will be forcely withdrawn. Withdrawal history can be queried through :meth:`BackExchange.fetch_deposit_history`.
 
 
+.. _be-slippage:
+
 Slippage
 ---------------
 In real life trading, orders are usually not filled at the ticker price for various reasons. This process, called `slippage <https://en.wikipedia.org/wiki/Slippage_(finance)>`_, is taken care in :class:`BackExchange` in the following aspects:

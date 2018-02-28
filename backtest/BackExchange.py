@@ -321,7 +321,9 @@ class BackExchange(object):
                                                                self._buy_price if order.side is OrderSide.Buy
                                                                else self._sell_price),
                                                          amount=order.remaining,
-                                                         order_info=order.info,
+                                                         order_type=order.type,
+                                                         order_side=order.side,
+                                                         symbol=order.symbol,
                                                          ticker=self.fetch_ticker(order.symbol),
                                                          timestamp=self.__time)
 
@@ -372,7 +374,9 @@ class BackExchange(object):
                                                                self._buy_price if order.side is OrderSide.Buy
                                                                else self._sell_price),
                                                          amount=order.remaining,
-                                                         order_info=order.info,
+                                                         order_type=order.type,
+                                                         order_side=order.side,
+                                                         symbol=order.symbol,
                                                          ticker=self.fetch_ticker(order.symbol),
                                                          timestamp=self.__time)
 
