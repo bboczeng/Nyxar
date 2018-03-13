@@ -49,17 +49,17 @@ class BackExchange(object):
         self._open_orders = OrderBook()
         self._closed_orders = OrderBook()
 
-        self.buy_price = buy_price
-        self.sell_price = sell_price
-        self.fee_rate = fee_rate
-        self.slippage_model = slippage_model
-
-        self._last_processed_timestamp = -1
-
         self._fee_rate = 0
         self._buy_price = None
         self._sell_price = None
         self._slippage_model = None
+
+        self._last_processed_timestamp = -1
+
+        self.buy_price = buy_price
+        self.sell_price = sell_price
+        self.fee_rate = fee_rate
+        self.slippage_model = slippage_model
 
     @property
     def __time(self):
