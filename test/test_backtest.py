@@ -1,6 +1,6 @@
 import unittest
 
-from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
+from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder
 from backtest.BackExchange import BackExchange
 from backtest.Slippage import VolumeSlippage, SpreadSlippage
 from core.Ticker import Quotes, BidAsks
@@ -30,11 +30,6 @@ class BackExchangeBlackBoxTest(unittest.TestCase):
 
     def next_tickers(self, n: int):
         for i in range(n):
-            self.timer.next()
-            self.ex._process()
-
-    def forward_to_timestamp(self, timestamp):
-        while self.timer.time < timestamp:
             self.timer.next()
             self.ex._process()
 
@@ -428,7 +423,7 @@ class SlippageModelBlackboxTest(unittest.TestCase):
         self.assertEqual(self.ex.fetch_order(order['id'])['status'], 'filled')
 
         # market order is not affected
-        order = self.ex.create_market_buy_order('XRP/ETH', 500)
+        # not used: order = self.ex.create_market_buy_order('XRP/ETH', 500)
         self.next_tickers(1)
         self.assertEqual(len(self.ex.fetch_open_orders()), 0)
 

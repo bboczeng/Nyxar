@@ -15,6 +15,7 @@ from ccxt.base.errors import ExchangeNotAvailable, ExchangeError, RequestTimeout
 N_RETRY = 10
 DDOS_COOLDOWN = 120
 
+
 class TickerFields(Enum):
     High = "high"
     Low = "low"
@@ -46,7 +47,7 @@ class TickerBase(object):
     def symbol(self):
         return self._symbol
 
-    def read_from_csv(self, file_path: str, field_name: list):
+    def read_from_csv(self, file_path: str, field_name: set):
         """
         Read fields given by field_name from a csv file file_path. If the CSV file already has a header, only columns
         with field name in field_name will be imported. If the CSV file doesn't have a header, the number of columns
@@ -59,6 +60,8 @@ class TickerBase(object):
         assert os.path.exists(file_path)
         assert "timestamp" in field_name
 
+        pd_data = None
+
         with open(file_path) as input_file:
             reader = csv.reader(input_file)
             header = reader.__next__()
@@ -69,12 +72,14 @@ class TickerBase(object):
             else:
                 raise ValueError
 
+        if pd_data is None:
+            raise ValueError
         # use timestamp as primary key
         self._data = pd_data.set_index("timestamp")
 
         print("[Ticker] Read {:d} lines of ticker data for {:s}".format(self._data.shape[0], self._symbol))
 
-    def read_from_table(self, table: list, field_name: list):
+    def read_from_table(self, table: list, field_name: set):
         pd_data = pd.DataFrame(table, columns=field_name)
         # use timestamp as primary key
         self._data = pd_data.set_index("timestamp")
@@ -116,7 +121,7 @@ class TickerBase(object):
 
 class Quote(TickerBase):
     def __init__(self, quote_name: str, base_name: str):
-        super(Quote , self).__init__(quote_name, base_name)
+        super(Quote, self).__init__(quote_name, base_name)
 
     def price_high(self, timestamp: int):
         return self.get_value(timestamp, TickerFields.High)
@@ -138,11 +143,17 @@ class Quote(TickerBase):
                 'low': self.price_low(timestamp), 'close': self.price_close(timestamp),
                 'volume': self.volume(timestamp)}
 
-    def read_from_csv(self, file_path: str):
-        super(Quote, self).read_from_csv(file_path, ['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    def read_from_csv(self, file_path: str, field_name=('timestamp', 'open', 'high', 'low', 'close', 'volume')):
+        super(Quote, self).read_from_csv(file_path, field_name)
 
-    def read_from_table(self, table: list):
-        super(Quote, self).read_from_table(table, ['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    def read_from_table(self, table: list, field_name=('timestamp', 'open', 'high', 'low', 'close', 'volume')):
+        super(Quote, self).read_from_table(table, field_name)
+
+    def read_from_url(self, url: str):
+        raise NotImplementedError
+
+    def read_from_api(self, api_fun):
+        raise NotImplementedError
 
 
 class BidAsk(TickerBase):
@@ -158,8 +169,14 @@ class BidAsk(TickerBase):
     def price_last(self, timestamp: int):
         return self.get_value(timestamp, TickerFields.Last)
 
-    def read_from_csv(self, file_path: str):
-        super(BidAsk, self).read_from_csv(file_path, ['timestamp', 'bid', 'ask', 'last'])
+    def read_from_csv(self, file_path: str, field_name=('timestamp', 'bid', 'ask', 'last')):
+        super(BidAsk, self).read_from_csv(file_path, field_name)
+
+    def read_from_url(self, url: str):
+        raise NotImplementedError
+
+    def read_from_api(self, api_fun):
+        raise NotImplementedError
 
 
 class TickersBase(object):
@@ -219,7 +236,7 @@ class Quotes(TickersBase):
             return
 
         markets = exchange.loadMarkets()
-
+        directory = ''
         if path != '':
             directory = path + exchange_name + '/'
             if not os.path.exists(directory):

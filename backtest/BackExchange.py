@@ -10,7 +10,7 @@ from backtest.Order import OrderSide, OrderType, OrderStatus, Order, OrderBook, 
 from backtest.Slippage import SlippageBase
 
 from enum import Enum
-from typing import List, Set, Tuple
+from typing import Tuple
 from itertools import chain
 
 from networkx.exception import NetworkXNoPath
@@ -56,6 +56,11 @@ class BackExchange(object):
 
         self._last_processed_timestamp = -1
 
+        self._fee_rate = 0
+        self._buy_price = None
+        self._sell_price = None
+        self._slippage_model = None
+
     @property
     def __time(self):
         return self._timer.time
@@ -72,7 +77,8 @@ class BackExchange(object):
             try:
                 self.__get_volume(symbol)
                 supported_symbols.add(symbol)
-                supported_assets |= {self._quotes.get_ticker(symbol).quote_name, self._quotes.get_ticker(symbol).base_name}
+                supported_assets |= \
+                    {self._quotes.get_ticker(symbol).quote_name, self._quotes.get_ticker(symbol).base_name}
             except KeyError:
                 continue
         return supported_symbols, supported_assets
@@ -207,15 +213,17 @@ class BackExchange(object):
             Portfolio value
         """
 
-        G = nx.DiGraph()
+        di_graph = nx.DiGraph()
         multiplier = 1.0 - self._fee_rate / 100.0 if fee else 1.0
 
         for symbol in self._symbols:
             quote_name = self._quotes.get_ticker(symbol).quote_name
             base_name = self._quotes.get_ticker(symbol).base_name
 
-            G.add_edge(quote_name, base_name, weight=-math.log(multiplier * self.__get_price(symbol, self._sell_price)))
-            G.add_edge(base_name, quote_name, weight=math.log(self.__get_price(symbol, self._buy_price) / multiplier))
+            di_graph.add_edge(quote_name, base_name,
+                              weight=-math.log(multiplier * self.__get_price(symbol, self._sell_price)))
+            di_graph.add_edge(base_name, quote_name,
+                              weight=math.log(self.__get_price(symbol, self._buy_price) / multiplier))
 
         balance = 0
         for asset in self._total_balance:
@@ -224,7 +232,7 @@ class BackExchange(object):
                     balance += self._total_balance[asset]
                     continue
                 try:
-                    weight = nx.shortest_path_length(G, asset, target, "weight")
+                    weight = nx.shortest_path_length(di_graph, asset, target, "weight")
                 except NetworkXNoPath:
                     raise NotSupported("Not possible to convert all assets to the target asset. ")
                 balance += math.exp(-weight) * self._total_balance[asset]
@@ -317,15 +325,14 @@ class BackExchange(object):
         assert order.type is OrderType.Market and order.remaining == order.amount
         assert order.status is not OrderStatus.Cancelled
 
-        price, amount = self._slippage_model.generate_tx(price=self.__get_price(order.symbol,
-                                                               self._buy_price if order.side is OrderSide.Buy
-                                                               else self._sell_price),
-                                                         amount=order.remaining,
-                                                         order_type=order.type,
-                                                         order_side=order.side,
-                                                         symbol=order.symbol,
-                                                         ticker=self.fetch_ticker(order.symbol),
-                                                         timestamp=self.__time)
+        price, amount = self._slippage_model.generate_tx(
+            price=self.__get_price(order.symbol, self._buy_price if order.side is OrderSide.Buy else self._sell_price),
+            amount=order.remaining,
+            order_type=order.type,
+            order_side=order.side,
+            symbol=order.symbol,
+            ticker=self.fetch_ticker(order.symbol),
+            timestamp=self.__time)
 
         if price < 0 or amount != order.remaining:
             raise SlippageModelError
@@ -370,15 +377,14 @@ class BackExchange(object):
         assert order.status is not OrderStatus.Cancelled
 
         is_filled = False
-        price, amount = self._slippage_model.generate_tx(price=self.__get_price(order.symbol,
-                                                               self._buy_price if order.side is OrderSide.Buy
-                                                               else self._sell_price),
-                                                         amount=order.remaining,
-                                                         order_type=order.type,
-                                                         order_side=order.side,
-                                                         symbol=order.symbol,
-                                                         ticker=self.fetch_ticker(order.symbol),
-                                                         timestamp=self.__time)
+        price, amount = self._slippage_model.generate_tx(
+            price=self.__get_price(order.symbol, self._buy_price if order.side is OrderSide.Buy else self._sell_price),
+            amount=order.remaining,
+            order_type=order.type,
+            order_side=order.side,
+            symbol=order.symbol,
+            ticker=self.fetch_ticker(order.symbol),
+            timestamp=self.__time)
 
         if price < 0 or amount > order.remaining:
             raise SlippageModelError
@@ -723,5 +729,3 @@ class BackExchange(object):
         if __debug__:
             # check if balance is consistent with order books
             self.__balance_consistency_check()
-
-

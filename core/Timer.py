@@ -1,5 +1,6 @@
 # to do: pytz support
 
+
 class Timer(object):
     def __init__(self, start_time: int, end_time: int, ticker_size: int):
         self._start_time = start_time

@@ -10,7 +10,7 @@ import json
 import requests
 
 
-class coinmarketcap:
+class CoinMarketCap:
     def __init__(self, path='', retry=5):
         self.data_source_name = 'coinmarketcap'
         self.base_url = 'https://api.coinmarketcap.com/v1/'
@@ -42,6 +42,7 @@ class coinmarketcap:
             print('   Fail to get from: ' + self.base_url + '/' + endpoint)
             return
 
+    """ TODO: fix, default params value is mutable """
     def fetch_volume(self, save=True, params={'start': 0, 'limit': 200}):
         def num(s):
             try:
@@ -95,4 +96,3 @@ class coinmarketcap:
 
                         writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction='ignore')
                         writer.writerow(self.last_volume[symbol])
-

@@ -1,6 +1,7 @@
 from core.Ticker import TickerFields, BidAsks
 from backtest.Order import OrderType, OrderSide
 
+
 class SlippageBase(object):
     def __init__(self):
         pass
@@ -12,6 +13,7 @@ class SlippageBase(object):
 
 class VolumeSlippage(SlippageBase):
     def __init__(self, tradable_rate: float=2.5):
+        super(VolumeSlippage, self).__init__()
         self._rate = tradable_rate
 
     def generate_tx(self, price: float, amount: float, order_type: OrderType, order_side: OrderSide, symbol: str,
@@ -24,6 +26,7 @@ class VolumeSlippage(SlippageBase):
 
 class SpreadSlippage(SlippageBase):
     def __init__(self, bidask: BidAsks, spread_rate: float=50):
+        super(SpreadSlippage, self).__init__()
         self._bidask = bidask
         self._rate = spread_rate
 
@@ -42,6 +45,7 @@ class SpreadSlippage(SlippageBase):
 
 class SpreadVolumeSlippage(SlippageBase):
     def __init__(self, bidask: BidAsks, spread_rate: float=0.5, tradable_rate: float=2.5):
+        super(SpreadVolumeSlippage, self).__init__()
         self._bidask = bidask
         self._srate = spread_rate
         self._vrate = tradable_rate
@@ -51,13 +55,14 @@ class SpreadVolumeSlippage(SlippageBase):
         if order_type is not OrderType.Market:
             amount = min(amount, ticker['volume'] * self._vrate / 100.0)
 
+        # assuming ticker has 'symbol' as key
         try:
-            bid = self._bidask.get_ticker(order_info['symbol']).get_closet_value(timestamp, TickerFields.Bid)
-            ask = self._bidask.get_ticker(order_info['symbol']).get_closet_value(timestamp, TickerFields.Ask)
+            bid = self._bidask.get_ticker(ticker['symbol']).get_closet_value(timestamp, TickerFields.Bid)
+            ask = self._bidask.get_ticker(ticker['symbol']).get_closet_value(timestamp, TickerFields.Ask)
         except KeyError:
             return price, amount
+        # use _srate in place of _rate
         if order_side is OrderSide.Buy:
-            return price + (ask - bid) * self._rate / 100.0, amount
+            return price + (ask - bid) * self._srate / 100.0, amount
         elif order_side is OrderSide.Sell:
-            return price - (ask - bid) * self._rate / 100.0, amount
-
+            return price - (ask - bid) * self._srate / 100.0, amount

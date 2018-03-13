@@ -1,10 +1,11 @@
 import unittest
-import re
-from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
-from backtest.BackExchange import BackExchange
-from backtest.Slippage import VolumeSlippage, SpreadSlippage
+# import re
+# from backtest.Errors import NotSupported, InsufficientFunds, InvalidOrder, OrderNotFound, SlippageModelError
+# from backtest.BackExchange import BackExchange
+# from backtest.Slippage import VolumeSlippage, SpreadSlippage
 from core.Ticker import Quotes, BidAsks
-from core.Timer import Timer
+# from core.Timer import Timer
+
 
 class Ticker(unittest.TestCase):
     def setUp(self):
@@ -28,7 +29,7 @@ class Ticker(unittest.TestCase):
     def test_exchange_ticker(self):
         quotes = Quotes()
         quotes.add_tickers_exchange('binance', pattern='(\w+)/(USDT)')
-        self.assertEqual(len(quotes), 6) # this may change with time
+        self.assertEqual(len(quotes), 6)  # this may change with time
 
 
 if __name__ == '__main__':

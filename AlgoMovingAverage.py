@@ -1,9 +1,14 @@
 from backtest.BackExchange import BackExchange
 from collections import deque
 
+
 class MovingAverageTradingAlgo(object):
     def __init__(self, exchange: BackExchange):
         self.exchange = exchange
+        self.moving_average = 0
+        self.price_queue = None
+        self.window_size = 0
+        self.last_price = 0
 
     def display_balance(self):
         balance = self.exchange.fetch_balance()
@@ -40,8 +45,8 @@ class MovingAverageTradingAlgo(object):
         else:
             print("moving average is:{:>12}".format(round(moving_average, 8)))
         if current_price < moving_average:
-            id = self.exchange.create_limit_buy_order(symbol='XRP/ETH', amount=10, price=current_price)
+            self.exchange.create_limit_buy_order(symbol='XRP/ETH', amount=10, price=current_price)
         elif balance['XRP']['available'] >= 10.0:
-            id = self.exchange.create_limit_sell_order(symbol='XRP/ETH', amount=10, price=current_price)
+            self.exchange.create_limit_sell_order(symbol='XRP/ETH', amount=10, price=current_price)
         self.last_price = current_price
         self.display_balance()

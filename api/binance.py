@@ -14,7 +14,7 @@ import json
 import base64
 
 
-class binance:
+class Binance:
     def __init__(self, path='', retry=5, ddos_cooldown=120):
         """
         Initialize binance exchange data pipeline.
@@ -40,8 +40,8 @@ class binance:
         if path != '':
             # the directory name for fetched data from different methods
             self.directory = {'OHLCV': 'OHLCV', 'bidask': 'bidask', 'orderbook': 'orderbook'}
-            for dir in self.directory:
-                directory = path + self.exchange_name + '/' + self.directory[dir] + '/'
+            for dir_str in self.directory:
+                directory = path + self.exchange_name + '/' + self.directory[dir_str] + '/'
                 if not os.path.exists(directory):
                     os.makedirs(directory)
 
@@ -194,6 +194,7 @@ class binance:
                         writer.writerow(fieldnames)
                         writer.writerow(self.last_bid_ask[symbol])
 
+    """ TODO: fix, default orderbook_params value is mutable """
     def fetch_order_book(self, save=True, params={'limit': 100}):
         """
         Fetch current order book for all tradable pairs, to self.last_order_book as list.
@@ -255,6 +256,7 @@ class binance:
             counter += 1
             time.sleep(self.exchange.rateLimit / 1000)
 
+    """ TODO: fix, default orderbook_params value is mutable """
     def fetch_symbol(self, symbol, interval='1m', ohlcv_limit=10, orderbook_params={'limit': 10}):
         """
         Fetch bid-ask spread, OHLCV and orderbook for a given symbol, to self.last_symbol as a dictionary.
