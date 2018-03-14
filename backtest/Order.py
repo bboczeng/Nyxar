@@ -2,6 +2,7 @@ from enum import Enum
 from datetime import datetime
 from collections import OrderedDict
 from sortedcontainers import SortedDict
+import uuid
 
 import time
 
@@ -43,7 +44,7 @@ class Transaction(object):
 
     def _generate_unique_id(self) -> int:
         # should be unique, datetime + name
-        return hash(str(time.time()) + self.symbol)
+        return int(uuid.uuid4().hex, 16)
 
     @property
     def timestamp(self) -> int:
