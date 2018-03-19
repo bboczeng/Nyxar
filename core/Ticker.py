@@ -5,15 +5,13 @@ import re
 import ccxt
 import time
 
+from core import N_RETRY, DDOS_COOLDOWN
+
 from enum import Enum
 # from decimal import *
 # getcontext().prec = 8
 
 from ccxt.base.errors import ExchangeNotAvailable, ExchangeError, RequestTimeout, DDoSProtection
-
-
-N_RETRY = 10
-DDOS_COOLDOWN = 120
 
 
 class TickerFields(Enum):
