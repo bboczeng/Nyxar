@@ -15,8 +15,8 @@ class MovingAverageTradingAlgo(object):
         for asset in balance:
             if balance[asset]['total'] > 0:
                 print("{:<4} Total:{:>12}  In order:{:>12}  Remaining:{:>12}".format(
-                    asset, round(balance[asset]['total'], 8), round(balance[asset]['in order'], 8),
-                    round(balance[asset]['available'], 8)))
+                    asset, round(balance[asset]['total'], 8), round(balance[asset]['used'], 8),
+                    round(balance[asset]['free'], 8)))
 
     def initialize(self, window_size):
         self.moving_average = 0
@@ -46,7 +46,7 @@ class MovingAverageTradingAlgo(object):
             print("moving average is:{:>12}".format(round(moving_average, 8)))
         if current_price < moving_average:
             self.exchange.create_limit_buy_order(symbol='XRP/ETH', amount=10, price=current_price)
-        elif balance['XRP']['available'] >= 10.0:
+        elif balance['XRP']['free'] >= 10.0:
             self.exchange.create_limit_sell_order(symbol='XRP/ETH', amount=10, price=current_price)
         self.last_price = current_price
         self.display_balance()

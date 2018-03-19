@@ -14,7 +14,7 @@
 #############
 
 from backtest.BackExchange import BackExchange
-from core.Quote import QuoteFields
+from core.Ticker import TickerFields
 
 from collections import deque
 import math
@@ -48,7 +48,7 @@ Exponential moving average
 
 
 class EMA(OperatorsBase):
-    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: QuoteFields):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: TickerFields):
         super(EMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
@@ -84,7 +84,7 @@ Simple moving average
 
 
 class SMA(OperatorsBase):
-    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: QuoteFields):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: TickerFields):
         super(SMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
@@ -123,7 +123,7 @@ This indicator is used to facilitate standard RSI calculations.
 
 
 class SMMA(OperatorsBase):
-    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: QuoteFields):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: TickerFields):
         super(SMMA, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
@@ -163,7 +163,7 @@ of a commodity
 
 
 class Sigma(OperatorsBase):
-    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: QuoteFields):
+    def __init__(self, exchange: BackExchange, ticker_name: str, window_size: int, field: TickerFields):
         super(Sigma, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
@@ -212,7 +212,7 @@ MACD is an indicator of indicators (EMA)
 
 
 class MACD(OperatorsBase):
-    def __init__(self, exchange: BackExchange, ticker_name: str, field: QuoteFields):
+    def __init__(self, exchange: BackExchange, ticker_name: str, field: TickerFields):
         super(MACD, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.ema_26 = EMA(exchange, ticker_name, 26, field)
@@ -255,7 +255,7 @@ class StochasticOscillator(OperatorsBase):
         self.operator_name = "StochasticOscillator" + " of " + ticker_name
 
     def get(self):
-        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Close]
         return self.__get_feed(current_close)
 
     def __get_feed(self, value):
@@ -291,14 +291,14 @@ class RSI(OperatorsBase):
         super(RSI, self).__init__(exchange)
         self.ticker_name = ticker_name
         self.window_size = window_size
-        self.smma_up = SMMA(exchange, ticker_name, window_size, QuoteFields.Close)
-        self.smma_down = SMMA(exchange, ticker_name, window_size, QuoteFields.Close)
+        self.smma_up = SMMA(exchange, ticker_name, window_size, TickerFields.Close)
+        self.smma_down = SMMA(exchange, ticker_name, window_size, TickerFields.Close)
         self.rsi = None
         self.close_prev = None
         self.operator_name = "RSI(" + str(self.window_size) + ")" + " of " + ticker_name
 
     def get(self):
-        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Close]
         return self.__get_feed(current_close)
 
     def __get_feed(self, value):
@@ -334,15 +334,15 @@ class CCI(OperatorsBase):
         self.ticker_name = ticker_name
         self.window_size = window_size
         # store price as a list
-        self.sigma = Sigma(exchange, ticker_name, window_size, QuoteFields.Close)
-        self.sma = SMA(exchange, ticker_name, window_size, QuoteFields.Close)
+        self.sigma = Sigma(exchange, ticker_name, window_size, TickerFields.Close)
+        self.sma = SMA(exchange, ticker_name, window_size, TickerFields.Close)
         self.cci = None
         self.operator_name = "CCI(" + str(self.window_size) + ")" + " of " + ticker_name
 
     def get(self):
-        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
-        current_high = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.High]
-        current_low = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Low]
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Close]
+        current_high = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.High]
+        current_low = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Low]
         typical_price = (current_close + current_high + current_low) / 3
         return self.__get_feed(typical_price)
 
@@ -379,12 +379,12 @@ class ATR(OperatorsBase):
         self.operator_name = "ATR(" + str(self.window_size) + ")" + " of " + ticker_name
 
     def get(self):
-        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Close]
         if self.previous_close is None:
             self.previous_close = current_close
             return None
-        current_high = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.High]
-        current_low = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Low]
+        current_high = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.High]
+        current_low = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Low]
         true_range = max(math.fabs(current_high - current_low),
                          math.fabs(current_high - self.previous_close),
                          math.fabs(self.previous_close - current_low))
@@ -421,15 +421,15 @@ class BollingerBands(OperatorsBase):
         self.ticker_name = ticker_name
         self.window_size = window_size
         # store price as a list
-        self.sigma = Sigma(exchange, ticker_name, window_size, QuoteFields.Close)
-        self.sma = SMA(exchange, ticker_name, window_size, QuoteFields.Close)
+        self.sigma = Sigma(exchange, ticker_name, window_size, TickerFields.Close)
+        self.sma = SMA(exchange, ticker_name, window_size, TickerFields.Close)
         self.upper_band = None
         self.lower_band = None
         self.middle_band = None
         self.operator_name = "BollingerBands(" + str(self.window_size) + ")" + " of " + ticker_name
 
     def get(self):
-        current_close = self.exchange.fetch_ticker(self.ticker_name)[QuoteFields.Close]
+        current_close = self.exchange.fetch_ticker(self.ticker_name)[TickerFields.Close]
         return self.__get_feed(current_close)
 
     def __get_feed(self, value):
