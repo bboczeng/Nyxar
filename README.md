@@ -12,6 +12,8 @@ Features:
 
 - Multiple source of datafeed supported: mainstream cryptocurrency exchanges, quandal, csv file or pandas dataframe. (under development)
 
+- 为什么用英文？
+
 Documentation: http://nyxar.readthedocs.io/
 
 **Note: This project is in very early development stage.**
